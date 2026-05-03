@@ -1,0 +1,20 @@
+[project]
+name = "image-memo-qdrant"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.11"
+dependencies = [
+    "easyocr>=1.7.2",
+    "fastapi>=0.136.1",
+    "gtts>=2.5.4",
+    "numpy>=2.4.4",
+    "openai-whisper>=20250625",
+    "opencv-python>=4.13.0.92",
+    "pillow>=12.2.0",
+    "pydantic>=2.13.3",
+    "python-multipart>=0.0.27",
+    "qdrant-client>=1.17.1",
+    "sentence-transformers==3.3.1",
+    "transformers==4.46.0",
+    "uvicorn[standard]>=0.46.0",
+]

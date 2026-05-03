@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Échos — search every memory</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: { extend: { fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+      colors: { accent: '#A78BFA' } } }
+  }
+</script>
+<style>
+  body { background: #0b0b10; color: #e8e8ee; font-family: 'Inter', system-ui, sans-serif; }
+  .shimmer { background: linear-gradient(90deg, #1a1a22 0%, #25252e 50%, #1a1a22 100%);
+    background-size: 200% 100%; animation: shimmer 1.4s infinite; }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  .card { transition: transform 160ms ease, box-shadow 160ms ease; }
+  .card:hover { transform: scale(1.02); box-shadow: 0 12px 36px rgba(167,139,250,0.18); }
+  .focus-ring:focus { outline: none; box-shadow: 0 0 0 3px rgba(167,139,250,0.5); }
+  .chip-active { background: #A78BFA; color: #0b0b10; }
+  mark { background: rgba(167,139,250,0.35); color: inherit; padding: 0 2px; border-radius: 3px; }
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-6xl mx-auto px-6 py-8">
+
+  <header class="flex items-center justify-between mb-10">
+    <div>
+      <h1 class="text-2xl font-semibold tracking-tight">Échos</h1>
+      <p class="text-sm text-neutral-500">search every memory on your phone, in one place</p>
+    </div>
+    <div class="flex items-center gap-2">
+      <label for="uploadInput"
+        class="cursor-pointer text-xs text-accent px-3 py-2 rounded-full bg-neutral-900/60 border border-neutral-800 hover:border-accent">
+        + add memory
+      </label>
+      <input id="uploadInput" type="file" multiple
+        accept="image/*,video/*,audio/*"
+        class="hidden">
+      <div id="stats" class="text-xs text-neutral-400 px-3 py-2 rounded-full bg-neutral-900/60 border border-neutral-800">
+        loading…
+      </div>
+    </div>
+  </header>
+
+  <div id="uploadStatus" class="hidden mb-4 text-xs text-neutral-400 px-3 py-2 rounded-lg bg-neutral-900/60 border border-neutral-800"></div>
+
+  <div class="relative mb-6">
+    <input id="q" type="text" autocomplete="off" autofocus
+      class="w-full bg-neutral-900/80 border border-neutral-800 rounded-2xl py-5 px-6 text-lg focus-ring placeholder-neutral-600"
+      placeholder="dog at the beach">
+  </div>
+
+  <div id="chips" class="flex flex-wrap gap-2 mb-8 text-xs">
+    <button data-filter="all" class="chip chip-active px-3 py-1.5 rounded-full border border-neutral-700">all</button>
+    <button data-filter="photo" class="chip px-3 py-1.5 rounded-full border border-neutral-700">photos</button>
+    <button data-filter="video" class="chip px-3 py-1.5 rounded-full border border-neutral-700">videos</button>
+    <button data-filter="voice_memo" class="chip px-3 py-1.5 rounded-full border border-neutral-700">voice</button>
+    <button data-filter="screenshot" class="chip px-3 py-1.5 rounded-full border border-neutral-700">screenshots</button>
+  </div>
+
+  <div id="results" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"></div>
+
+  <div id="empty" class="hidden text-center py-24 text-neutral-500">
+    <div class="text-3xl mb-3">·</div>
+    <div class="text-sm">no memories matched. try a different word, or a name, or a feeling.</div>
+  </div>
+
+  <footer class="mt-16 text-center text-xs text-neutral-600">
+    Échos · Built on Qdrant Edge · Nothing leaves your device
+  </footer>
+</div>
+
+<div id="modal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+  <div class="max-w-3xl w-full bg-neutral-950 border border-neutral-800 rounded-2xl p-6 max-h-[90vh] overflow-y-auto">
+    <div id="modalContent"></div>
+    <button id="closeModal" class="mt-4 text-sm text-neutral-400 hover:text-white">close</button>
+  </div>
+</div>
+
+<script>
+const PLACEHOLDERS = [
+  "dog at the beach",
+  "what Sarah said about the venue",
+  "that error from Tuesday",
+  "sunset photos",
+  "race condition bug",
+  "ceramic mug gift",
+];
+let phIdx = 0;
+const q = document.getElementById('q');
+setInterval(() => {
+  phIdx = (phIdx + 1) % PLACEHOLDERS.length;
+  if (!q.value) q.placeholder = PLACEHOLDERS[phIdx];
+}, 3000);
+
+let filter = 'all';
+let lastResults = [];
+
+document.querySelectorAll('.chip').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.chip').forEach(x => x.classList.remove('chip-active'));
+    b.classList.add('chip-active');
+    filter = b.dataset.filter;
+    render(lastResults, q.value);
+  });
+});
+
+function loadStats() {
+  fetch('/stats').then(r => r.json()).then(s => {
+    document.getElementById('stats').textContent = `${s.total} memories · 100% local`;
+  });
+}
+loadStats();
+
+let timer = null;
+q.addEventListener('input', () => {
+  clearTimeout(timer);
+  if (!q.value.trim()) { document.getElementById('results').innerHTML = ''; document.getElementById('empty').classList.add('hidden'); return; }
+  showShimmer();
+  timer = setTimeout(doSearch, 200);
+});
+
+function showShimmer() {
+  const r = document.getElementById('results');
+  r.innerHTML = '';
+  for (let i = 0; i < 6; i++) {
+    const c = document.createElement('div');
+    c.className = 'shimmer rounded-xl h-56';
+    r.appendChild(c);
+  }
+}
+
+async function doSearch() {
+  const query = q.value.trim();
+  if (!query) return;
+  const res = await fetch('/search', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ query, top_k: 12 })
+  });
+  const data = await res.json();
+  lastResults = data.results || [];
+  render(lastResults, query);
+}
+
+function fmtAgo(ts) {
+  if (!ts) return '';
+  const ms = Date.now() - ts * 1000;
+  const d = Math.floor(ms / 86400000);
+  if (d === 0) return 'today';
+  if (d === 1) return 'yesterday';
+  if (d < 30) return `${d} days ago`;
+  return `${Math.floor(d / 30)} months ago`;
+}
+
+function highlight(text, query) {
+  if (!text || !query) return text || '';
+  const safe = query.split(/\s+/).filter(w => w.length > 2);
+  let out = text;
+  for (const w of safe) {
+    const re = new RegExp(`(${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'ig');
+    out = out.replace(re, '<mark>$1</mark>');
+  }
+  return out;
+}
+
+function badge(type) {
+  const map = { photo: '📷 Photo', video: '🎥 Video', voice_memo: '🎙️ Voice', screenshot: '🖼️ Screenshot' };
+  return map[type] || type;
+}
+
+function render(results, query) {
+  const wrap = document.getElementById('results');
+  wrap.innerHTML = '';
+  const filtered = filter === 'all' ? results : results.filter(r => r.type === filter);
+  document.getElementById('empty').classList.toggle('hidden', filtered.length > 0);
+  for (const r of filtered) {
+    const card = document.createElement('div');
+    card.className = 'card cursor-pointer rounded-xl overflow-hidden bg-neutral-900/70 border border-neutral-800 p-3';
+
+    const thumb = document.createElement('div');
+    thumb.className = 'aspect-video rounded-lg bg-neutral-800 mb-3 flex items-center justify-center text-neutral-500 text-xs overflow-hidden';
+    if (r.type === 'voice_memo') {
+      thumb.innerHTML = '<div class="text-2xl">🎙️</div>';
+    } else {
+      const im = document.createElement('img');
+      im.className = 'w-full h-full object-cover';
+      im.alt = '';
+      fetch(`/thumbnail/${r.id}`).then(x => x.json()).then(t => { im.src = t.data_url; });
+      thumb.innerHTML = '';
+      thumb.appendChild(im);
+      if (r.type === 'video') {
+        const ov = document.createElement('div');
+        ov.className = 'absolute inset-0 flex items-center justify-center text-4xl text-white/90 pointer-events-none';
+        ov.textContent = '▶';
+        thumb.style.position = 'relative';
+        thumb.appendChild(ov);
+      }
+    }
+    card.appendChild(thumb);
+
+    const meta = document.createElement('div');
+    meta.className = 'flex items-center justify-between text-xs text-neutral-400 mb-2';
+    meta.innerHTML = `<span>${badge(r.type)}</span><span>${fmtAgo(r.timestamp)}</span>`;
+    card.appendChild(meta);
+
+    if (r.type === 'voice_memo' && r.transcript) {
+      const t = document.createElement('div');
+      t.className = 'text-sm text-neutral-200 mb-2 line-clamp-3';
+      t.innerHTML = highlight(r.transcript, query);
+      card.appendChild(t);
+    }
+    if (r.type === 'video' && r.best_moment_seconds !== undefined) {
+      const t = document.createElement('div');
+      t.className = 'text-xs text-accent mb-1';
+      t.textContent = `▶ best moment at ${fmtTs(r.best_moment_seconds)}`;
+      card.appendChild(t);
+    }
+    if (r.type === 'screenshot' && r.ocr_text) {
+      const t = document.createElement('div');
+      t.className = 'text-xs text-neutral-400 line-clamp-2';
+      t.innerHTML = highlight(r.ocr_text, query);
+      card.appendChild(t);
+    }
+
+    const m = document.createElement('div');
+    m.className = 'text-[11px] text-neutral-500 mt-2';
+    m.textContent = `matched via ${r.matched_via.join(' + ')}`;
+    card.appendChild(m);
+
+    card.addEventListener('click', () => openModal(r, query));
+    wrap.appendChild(card);
+  }
+}
+
+function fmtTs(s) {
+  const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+  return `${m}:${String(sec).padStart(2, '0')}`;
+}
+
+function openModal(r, query) {
+  const c = document.getElementById('modalContent');
+  c.innerHTML = '';
+  const head = document.createElement('div');
+  head.className = 'mb-4 text-sm text-neutral-400';
+  head.textContent = `${badge(r.type)} · ${fmtAgo(r.timestamp)} · matched via ${r.matched_via.join(' + ')}`;
+  c.appendChild(head);
+
+  if (r.type === 'photo' || r.type === 'screenshot') {
+    const im = document.createElement('img');
+    im.src = `/media/${r.id}`;
+    im.className = 'w-full rounded-lg';
+    c.appendChild(im);
+    if (r.ocr_text) {
+      const o = document.createElement('div');
+      o.className = 'mt-4 text-sm text-neutral-300 bg-neutral-900 rounded-lg p-3 whitespace-pre-wrap';
+      o.innerHTML = highlight(r.ocr_text, query);
+      c.appendChild(o);
+    }
+  } else if (r.type === 'video') {
+    const v = document.createElement('video');
+    v.src = `/media/${r.id}`;
+    v.controls = true;
+    v.className = 'w-full rounded-lg';
+    if (r.best_moment_seconds) v.currentTime = r.best_moment_seconds;
+    v.addEventListener('loadedmetadata', () => {
+      if (r.best_moment_seconds) v.currentTime = r.best_moment_seconds;
+    });
+    c.appendChild(v);
+  } else if (r.type === 'voice_memo') {
+    const a = document.createElement('audio');
+    a.src = `/media/${r.id}`;
+    a.controls = true;
+    a.className = 'w-full mt-2';
+    c.appendChild(a);
+    if (r.transcript) {
+      const t = document.createElement('div');
+      t.className = 'mt-4 text-sm text-neutral-200 leading-relaxed';
+      t.innerHTML = highlight(r.transcript, query);
+      c.appendChild(t);
+    }
+  }
+
+  document.getElementById('modal').classList.remove('hidden');
+}
+
+document.getElementById('closeModal').addEventListener('click', () => {
+  document.getElementById('modal').classList.add('hidden');
+});
+document.getElementById('modal').addEventListener('click', (e) => {
+  if (e.target.id === 'modal') document.getElementById('modal').classList.add('hidden');
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') document.getElementById('modal').classList.add('hidden');
+});
+</script>
+</body>
+</html>

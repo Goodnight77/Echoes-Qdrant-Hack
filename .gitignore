@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# uv / venv
+.venv/
+.python-version
+
+# Qdrant local storage
+qdrant_storage/
+
+# Generated demo data (regenerate with `uv run python generate_demo.py`)
+memories/
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Scratch
+debug_index.py
+test_queries.py
+
+# Logs
+*.log
+
+# Claude Code local state
+.claude/
+
+# Local env
+.env
+.env.*
