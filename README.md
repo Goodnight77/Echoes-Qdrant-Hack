@@ -1,223 +1,197 @@
-# Échos — Search every memory on your phone, in one place
+# Échos — search every memory on your phone, in one place
 
-> Last month I had a conversation with a contractor about a kitchen renovation. He gave me a price, a timeline, and a list of materials. I recorded it. Two weeks later I was at the store trying to remember if he said oak or walnut. I knew the answer was on my phone. I never found it.
+> Last month I had a conversation about a kitchen renovation. He gave me a price, a timeline, and a list of materials. I recorded it. Two weeks later I was at the store trying to remember if he said oak or walnut. I knew the answer was on my phone. I never found it.
 >
-> **Échos** finds it. One search box across photos, videos, screenshots, and voice memos — running entirely on your machine. The model that knows everything about your life is the one you own.
-
-Built for the [Qdrant 2026 *Think Outside the Bot* Hackathon](https://try.qdrant.tech/hackathon-vsd).
+> **Échos** finds it. One search box across photos, videos, screenshots, and voice memos — running entirely on your machine.
 
 ---
 
-## Why Qdrant — named vectors as the technical pitch
+## Features
 
-A single Qdrant collection, **`memories`**, with three named vector spaces:
-
-| Space             | Dim | Encoder                    | What it indexes                              |
-|-------------------|----:|----------------------------|----------------------------------------------|
-| `visual`          | 512 | `clip-ViT-B-32`            | photos, screenshots, video keyframes (mean) |
-| `audio_transcript`| 384 | `all-MiniLM-L6-v2`         | voice memo + video transcripts (Whisper)    |
-| `ocr_text`        | 384 | `all-MiniLM-L6-v2`         | OCR-extracted text from images / shots      |
-
-A query fans out into all three spaces in parallel and the results merge via **weighted Reciprocal Rank Fusion** (RRF, k=60). Every hit reports which modalities matched — `matched_via: ["visual", "ocr_text"]` — so the UI can prove the match was multi-modal.
-
-```
-                 ┌──────────────────┐
-        query →  │  CLIP text  (512)│ → visual space        ┐
-                 │  MiniLM     (384)│ → audio_transcript   ─┼─ RRF → top 12
-                 │             (384)│ → ocr_text            ┘
-                 └──────────────────┘
-```
-
-This is the *whole* technical bet: a single collection where each item lives in only the modalities it has, and a single query lights up the right ones. No keyword search. No re-ranker. No LLM in the loop.
-
----
-
-## Why Edge — nothing leaves your device
-
-- Qdrant runs **embedded** in-process via `qdrant-client` against a local file store — no Qdrant Cloud.
-- CLIP, Whisper (`tiny`), MiniLM, and EasyOCR all run **locally on CPU**.
-- The FastAPI server binds `0.0.0.0:8000` for the iPhone client to reach over local WiFi — and never beyond.
-- "Forget this" deletes the point + the underlying file. Real privacy means you can delete a memory.
+- **Multi-modal search** — one query searches photos, videos, voice memos, and screenshots simultaneously
+- **3D Memory Museum** — walk through your memories arranged in themed rooms (HDBSCAN clustering + LLM-named rooms)
+- **Face detection & clustering** — people are automatically grouped and labelable
+- **Voice assistant** — push-to-talk in the museum, local Whisper STT + Qwen LLM synthesis via LM Studio, fully offline TTS
+- **Library browse** — scroll every memory chronologically
+- **People view** — browse by face clusters, rename or delete people
+- **Museum search kiosk** — search from inside the 3D museum, teleport to results
+- **Direct upload** — upload from any device on local WiFi, parallel progress
+- **Qdrant Edge buffer** — crash-safe write layer for fast ingest
+- **Nothing leaves your device** — embedded Qdrant, local models, no cloud
 
 ---
 
 ## Architecture
 
 ```
-┌────────────┐  WiFi  ┌────────────────────────────────┐
-│  iPhone /  │ ─────► │  FastAPI :8000                 │
-│  Browser   │        │   /search   /index-folder      │
-└────────────┘        │   /stats    /thumbnail/{id}    │
-                      │   /media/{id}  /resurface      │
-                      │   /thread   /forget            │
-                      │                                │
-                      │  ┌───────────────────────────┐ │
-                      │  │  Qdrant (embedded)        │ │
-                      │  │  collection: memories     │ │
-                      │  │  named vectors: visual,   │ │
-                      │  │  audio_transcript, ocr    │ │
-                      │  └───────────────────────────┘ │
-                      │  CLIP · Whisper · MiniLM · OCR │
-                      └────────────────────────────────┘
+┌────────────┐  WiFi  ┌─────────────────────────────────────────┐
+│  Browser / │ ─────► │  FastAPI :8000                          │
+│  iPhone    │        │   /search   /library   /upload          │
+└────────────┘        │   /faces/*  /museum/*  /ask             │
+                      │   /transcribe   /thread   /forget       │
+                      │                                         │
+                      │  ┌────────────────────────────────────┐ │
+                      │  │  Qdrant (embedded)                 │ │
+                      │  │  ┌─────────┐  ┌────────────────┐  │ │
+                      │  │  │ memories│  │ faces          │  │ │
+                      │  │  │ visual  │  │ embedding (512) │  │ │
+                      │  │  │ audio   │  └────────────────┘  │ │
+                      │  │  │ ocr     │  ┌────────────────┐  │ │
+                      │  │  └─────────┘  │ voice_memories │  │ │
+                      │  │               │ text (384)     │  │ │
+                      │  │               └────────────────┘  │ │
+                      │  └────────────────────────────────────┘ │
+                      │  ┌────────────────────────────────────┐ │
+                      │  │  Qdrant Edge buffer (crash-safe)   │ │
+                      │  └────────────────────────────────────┘ │
+                      │                                         │
+                      │  Models (all local):                     │
+                      │  CLIP · Whisper · MiniLM · EasyOCR       │
+                      │  ArcFace · Qwen 2.5 (LM Studio)          │
+                      └─────────────────────────────────────────┘
+
+React Frontend (echoes-front/):
+  Vite · React 19 · TypeScript · TailwindCSS · React Query · wouter
 ```
 
 ---
 
-## Setup + run
+## Qdrant Collections
 
-Requires Python 3.11, [`uv`](https://docs.astral.sh/uv/), `ffmpeg` on PATH. Tesseract is optional — falls back to EasyOCR.
+| Collection | Vector spaces | Purpose |
+|-----------|--------------|---------|
+| `memories` | `visual` (512d CLIP), `audio_transcript` (384d MiniLM), `ocr_text` (384d MiniLM) | All indexed memories |
+| `faces` | `embedding` (512d ArcFace) | Face detection + clustering |
+| `voice_memories` | `text` (384d MiniLM) | Past Q&A pairs for conversational context |
+
+A query fans out into all spaces in parallel and results merge via cosine-weighted fusion across spaces.
+
+---
+
+## Setup
+
+Requires Python 3.11+, [`uv`](https://docs.astral.sh/uv/), `ffmpeg` on PATH.
 
 ```powershell
 uv venv --python 3.11
 uv sync
-uv run python generate_demo.py     # writes 26 Maya-arc items to ./memories/
-uv run uvicorn main:app --host 0.0.0.0 --port 8000
+uv run python main.py
 ```
 
-In another shell, populate the index and try a query:
+Open `http://localhost:8000` — the React app loads automatically.
 
-```powershell
-curl -X POST http://127.0.0.1:8000/index-folder -H "Content-Type: application/json" -d "{}"
-curl -X POST http://127.0.0.1:8000/search -H "Content-Type: application/json" -d '{\"query\":\"dog at the beach\"}'
-```
+### Optional: LM Studio for voice + better cluster names
 
-Or just open <http://127.0.0.1:8000/> in a browser.
+1. Install [LM Studio](https://lmstudio.ai/)
+2. Download `Qwen 2.5 3B Instruct` (Q4_K_M) — fits in 4GB VRAM
+3. Start the local server (port 1234)
+4. Voice assistant + museum room naming now use local LLM instead of Groq
 
-### Run on iPhone (Safari, no Expo yet)
+### Optional: Groq API for faster cluster labeling
 
-The web UI is responsive + dark mode → works on iPhone Safari today. Native Expo app is a later session.
-
-1. **PC and iPhone on the same WiFi.** If conference WiFi is unreliable, enable iPhone hotspot and connect the PC to it.
-2. **Find PC IP** — PowerShell: `ipconfig` → look for "IPv4 Address" under your active WiFi adapter (e.g. `192.168.1.42`).
-3. **Open port 8000 in Windows Firewall** — Defender Firewall → Advanced Settings → Inbound Rules → New Rule → Port → TCP 8000 → Allow.
-4. **Smoke test** — on iPhone Safari, open `http://<PC_IP>:8000/stats`. Should return JSON `{"total":26,...}`. If it doesn't: firewall is blocking, or FastAPI is bound to `127.0.0.1` instead of `0.0.0.0`.
-5. **Open the app** — `http://<PC_IP>:8000/`. Type a query. Tap a card → modal opens.
-6. **Add to Home Screen** (Safari → Share → Add to Home Screen) for an app-like icon. Removes Safari chrome on launch.
-
-iOS blocks autoplay — tap the play button on the video / audio player manually inside the modal.
-
-### Index from iPhone — direct upload (no cable)
-
-Open `http://<PC_IP>:8000/` on iPhone Safari. Tap **"+ add memory"** in the header. iOS file picker opens with three sources:
-
-- **Photo Library** — pick photos / videos (multi-select supported).
-- **Take Photo or Video** — capture in the moment.
-- **Browse** — pulls from the Files app, including voice memos saved there.
-
-After pick → file streams to PC over WiFi → backend embeds + upserts → stats badge updates → if a query is open, results refresh.
-
-**HEIC and HEIF** (iPhone default) are supported (`pillow-heif`). No conversion needed.
-
-**Voice memos:** the Photo Library picker doesn't show them. Two paths:
-1. iPhone **Voice Memos** app → tap memo → Share → **Save to Files** → in Files pick a folder → from Échos upload, choose **Browse** → select the `.m4a`.
-2. Or pre-stage memos in iCloud Drive / Files / On My iPhone, then Browse from upload.
-
-**Screenshots:** uploaded normally → indexed as photos. Want them treated as screenshots (mandatory OCR)? Either rename to start with `screenshot_`, or POST with `kind=screenshot`:
-```powershell
-curl -X POST "http://127.0.0.1:8000/upload?kind=screenshot" -F "files=@my_shot.png"
-```
-
-### Index your real iPhone gallery — bulk transfer alternative
-
-If you want to bulk-import 50+ items at once, dropping into `./memories/` is faster than the upload UI.
-
-**Three ways to get iPhone media onto the PC:**
-
-1. **USB cable + File Explorer** (fastest, lossless): plug iPhone into PC, "Trust this computer" on iPhone → in File Explorer find the iPhone under "This PC" → `Internal Storage / DCIM / 100APPLE` → drag photos & videos into `C:\...\image-memo-qdrant\memories\`.
-2. **iCloud / Google Photos web** (no cable): on iPhone upload the photos you want → on PC open the web app → download → drop into `memories/`.
-3. **Email or AirDrop-to-Windows alternatives** (small batch): email yourself the files from iPhone Photos / Voice Memos.
-
-**Voice memos:** iPhone Voice Memos app → tap memo → Share → Save to Files → transfer via any method above. They land as `.m4a` (the indexer handles `.m4a` natively).
-
-**Screenshots:** filename must start with `screenshot_` for the indexer to treat it as a screenshot (OCR mandatory). iPhone screenshots come in as `IMG_NNNN.PNG` — rename to `screenshot_<anything>.png` first, or just let them index as photos (CLIP will still match them).
-
-After dropping files into `memories/`, re-index:
-
-```powershell
-curl -X POST http://127.0.0.1:8000/index-folder -H "Content-Type: application/json" -d "{}"
-curl http://127.0.0.1:8000/stats
-```
-
-`/index-folder` is **idempotent** — point IDs are derived from the file path, so re-running it doesn't create dupes. New files get added; existing files get re-embedded only if you `DELETE /reset` first.
-
-**Hard reset** (wipe collection + start clean):
-```powershell
-curl -X DELETE http://127.0.0.1:8000/reset
-curl -X POST http://127.0.0.1:8000/index-folder -H "Content-Type: application/json" -d "{}"
-```
-
-Cold-start on real photos is roughly 3–5 seconds per image (CLIP + EasyOCR) and 2–4 seconds per voice memo (Whisper tiny). Plan ~1 min per 20 items on CPU.
-
-### Supported file types
-
-| Modality   | Extensions                                  | Indexed via                              |
-|------------|---------------------------------------------|------------------------------------------|
-| Photo      | `.jpg .jpeg .png .webp .bmp`                | CLIP visual + EasyOCR (if text present)  |
-| Screenshot | same as Photo, filename `screenshot_*`      | CLIP visual + EasyOCR (mandatory)        |
-| Voice memo | `.m4a .mp3 .wav .ogg .flac`                 | Whisper tiny → MiniLM embed of transcript |
-| Video      | `.mp4 .mov .mkv .webm .avi`                 | mean of CLIP keyframe embeds + Whisper   |
-
-Anything else in the folder is silently skipped.
+Set `GROQ_API_KEY` in `.env`. Local LLM is tried first; Groq is the fallback.
 
 ---
 
-## Demo queries to try
+## Run on iPhone over WiFi
 
-| Query                          | What surfaces                                                  |
-|--------------------------------|----------------------------------------------------------------|
-| `dog at the beach`             | the dog photo **and** the dog beach video (best moment 0:10)   |
-| `Sarah wedding venue`          | airbnb screenshot + Sarah voice memo + wedding venue photo     |
-| `Python error`                 | the KeyError traceback screenshot                              |
-| `sunset`                       | the sunset photo                                               |
-| `race condition bug`           | whiteboard photo + the auth-middleware voice memo              |
-| `ceramic mug gift`             | the mom's birthday voice memo                                  |
-
-Each one hits a different mix of modalities — that's the point.
+1. PC and iPhone on same WiFi
+2. Find PC IP: `ipconfig` → IPv4 Address
+3. Open `http://<PC_IP>:8000` in Safari
+4. Add to Home Screen for app-like experience
 
 ---
 
-## The Maya arc (demo data)
+## Frontend (echoes-front/)
 
-`generate_demo.py` writes 26 items telling 60 days of one fictional life:
-- 13 photos · 5 screenshots · 5 voice memos · 3 short videos
-- Three threads woven through: planning her sister's **wedding**, debugging a production **bug**, hunting an **apartment** in Park Slope
-- A few incidental memories (sunset, dog, coffee) as life texture
+```powershell
+cd echoes-front
+npm install
+npm run build       # production build → dist/
+npm run dev         # dev server with HMR on :5173
+```
 
-Searching `venue` should pull 5 related items across 3 modalities, in chronological order — that's `/thread` doing its job.
+The Python backend serves the built React app at `/`. Museum is at `/museum`.
 
 ---
 
 ## Endpoints
 
-| Method | Path                  | Purpose                                                    |
-|--------|-----------------------|------------------------------------------------------------|
-| POST   | `/search`             | named-vector RRF over query                                |
-| POST   | `/index-folder`       | scan a folder, dispatch by extension, upsert points        |
-| GET    | `/stats`              | total · by-type breakdown · last indexed timestamp         |
-| GET    | `/thumbnail/{id}`     | base64 200px thumbnail                                     |
-| GET    | `/media/{id}`         | streams the underlying file                                |
-| DELETE | `/reset`              | drop + recreate the collection                             |
-| POST   | `/resurface`          | "Echoes": find old memories similar to today's most recent |
-| POST   | `/thread`             | one query → chronological grouping across modalities       |
-| POST   | `/forget`             | drop a point (optionally delete the file)                  |
+### Search & Browse
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/search` | Multi-space search |
+| GET | `/library?limit=&before=` | Paginated all memories |
+| POST | `/thread` | Chronological search results |
+| POST | `/resurface` | Find old memories similar to recent |
+
+### Indexing
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/upload` | Upload files (multipart, parallel) |
+| POST | `/index-folder` | Scan a folder, dispatch by type |
+| POST | `/index-cancel` | Cancel running index operation |
+| DELETE | `/reset` | Wipe and recreate collections |
+| DELETE | `/thumbnail-cache` | Clear thumbnail cache |
+
+### Media
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/thumbnail/{id}` | 200px JPEG data URL |
+| GET | `/media/{id}` | Raw file stream |
+| GET | `/stats` | Total count + by-type breakdown |
+| POST | `/forget` | Delete point + optionally delete file |
+
+### Museum
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/museum` | 3D museum page |
+| GET | `/museum/layout?fresh=1` | Museum layout data (cached, force-rebuild with fresh) |
+| GET | `/museum/events` | SSE stream for layout staleness |
+| GET | `/viz/projection?space=&neighbors=` | 3D galaxy projection data |
+
+### Faces & People
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/faces/clusters` | List face clusters |
+| GET | `/faces/by-cluster/{id}` | Memories for a cluster |
+| GET | `/faces/by-label/{label}` | Memories for a label |
+| GET | `/faces/avatar/{id}` | Cropped face JPEG |
+| POST | `/faces/label` | Name a cluster |
+| POST | `/faces/scan` | Re-detect faces across all photos |
+| POST | `/faces/consolidate` | Merge duplicate-label clusters |
+| DELETE | `/faces/cluster/{id}` | Delete a face cluster |
+
+### Voice Assistant
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/transcribe` | Audio blob → text (Whisper tiny, offline) |
+| POST | `/ask` | Question → LLM-synthesized answer (LM Studio / Groq) |
+| POST | `/ask/{id}/answer` | Store synthesized answer |
+
+---
+
+## Supported file types
+
+| Modality | Extensions | Indexed via |
+|----------|-----------|-------------|
+| Photo | `.jpg .jpeg .png .webp .bmp .heic` | CLIP visual + EasyOCR |
+| Screenshot | same, filename `screenshot_*` | CLIP visual + EasyOCR (mandatory) |
+| Voice memo | `.m4a .mp3 .wav .ogg .flac` | Whisper tiny → MiniLM |
+| Video | `.mp4 .mov .mkv .webm .avi` | CLIP keyframe mean + Whisper |
+| HEIC/HEIF | iPhone default | Supported via `pillow-heif` |
 
 ---
 
 ## Caveats
 
-- **MiniLM short-text retrieval** is mediocre — voice memo discrimination is improved by a per-space cosine floor (0.30) and a small RRF weight bump (1.6×) for `audio_transcript`. Documented in `search.py`.
-- **EasyOCR** is the OCR engine (tesseract binary not assumed). Init does a one-time download of `english_g2.pth`.
-- **`sentence-transformers` 5.x has a broken pooling path** for `all-MiniLM-L6-v2` that collapses unrelated short texts to cosine ≈ 0.95. Pinned to `sentence-transformers==3.3.1` + `transformers==4.46.0` in `pyproject.toml` as the working baseline.
-- Cold start downloads ~1.5 GB of model weights (CLIP, Whisper tiny, MiniLM, EasyOCR). Run once with internet, then `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1` for fully offline operation.
+- **MiniLM short-text retrieval** — voice memo discrimination improved by per-space cosine floor (0.30) and weight bump (1.6×) for `audio_transcript`.
+- **Sentence-transformers** pinned to 3.3.1 (5.x has broken pooling for all-MiniLM-L6-v2).
+- **Cold start** downloads ~1.5 GB of model weights. Run once with internet, then `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1` for fully offline.
+- **EXIF dates** extracted where available; filename dates used as fallback (screenshots, camera roll naming). Files without either use file mtime (upload time).
 
 ---
 
-## What's next
+## Project name
 
-This is the **backend** session. The multi-session plan:
-1. ✅ Backend on PC — all 6 demo queries pass via curl. *(this commit)*
-2. ⏭ Expo / React Native iPhone client — `expo-av` video/audio, reanimated transitions, haptics, settings screen for the PC IP.
-3. ⏭ Real personal data dropped into `./memories/` for the demo video.
-4. ⏭ 3-minute demo video, contractor-story opener, privacy-cut close.
-
-Built for **Qdrant 2026 Think Outside the Bot Hackathon**.
+**Échos** (French: "echoes") — memories that come back to you.

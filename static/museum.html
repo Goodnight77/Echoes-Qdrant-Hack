@@ -57,6 +57,42 @@
   .hud-pill b { color: var(--accent); font-weight: 600; }
   .hud-pill .dot { width: 6px; height: 6px; border-radius: 999px; background: #4ade80; flex: 0 0 6px; }
 
+  .mic-btn {
+    display: flex; align-items: center; gap: 6px;
+    background: rgba(8,8,14,0.78); backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 999px;
+    padding: 9px 14px; font-size: 11px; letter-spacing: 0.04em;
+    color: #c8c8d0; font-family: inherit; cursor: pointer;
+    transition: all 160ms ease;
+  }
+  .mic-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .mic-btn.listening {
+    border-color: #ef4444; color: #ef4444;
+    animation: micPulse 1.2s ease-in-out infinite;
+  }
+  @keyframes micPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); }
+    50%      { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
+  }
+  .mic-btn .mic-icon { font-size: 14px; }
+  .mic-btn-bottom {
+    position: absolute; bottom: 80px; left: 16px; z-index: 20;
+  }
+  .mic-answer {
+    position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
+    max-width: 560px; padding: 10px 18px;
+    background: rgba(8,8,14,0.88); backdrop-filter: blur(12px);
+    border: 1px solid rgba(167,139,250,0.35); border-radius: 12px;
+    color: #e8e8ee; font-size: 13px; line-height: 1.5; z-index: 25;
+    pointer-events: auto; text-align: center;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+    animation: fadeInSlideUp 0.3s ease-out both;
+  }
+  @keyframes fadeInSlideUp {
+    0%   { opacity: 0; transform: translateX(-50%) translateY(8px); }
+    100% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
+
   /* Old top-left search-box hidden — hub-search at top-center replaces it. */
   .search-box { display: none; }
   .search-box input {
@@ -71,9 +107,40 @@
      badge) sit above this z-index so they stay clickable when unlocked. */
   .enter-overlay {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-    background: rgba(0,0,0,0.55); backdrop-filter: blur(4px);
     cursor: pointer; z-index: 10;
     transition: opacity 200ms ease;
+  }
+  /* Animated starfield background behind enter card — slow diagonal pan.
+     Inspired by 3D-art-gallery's panBg technique. */
+  .enter-overlay::before {
+    content: ''; position: absolute; inset: -40px;
+    background:
+      radial-gradient(1px 1px at 15% 25%, rgba(167,139,250,0.6), transparent),
+      radial-gradient(1px 1px at 35% 60%, rgba(255,255,255,0.5), transparent),
+      radial-gradient(2px 2px at 55% 15%, rgba(167,139,250,0.5), transparent),
+      radial-gradient(1px 1px at 70% 80%, rgba(255,255,255,0.4), transparent),
+      radial-gradient(1.5px 1.5px at 85% 40%, rgba(167,139,250,0.55), transparent),
+      radial-gradient(1px 1px at 20% 90%, rgba(255,255,255,0.45), transparent),
+      radial-gradient(2px 2px at 45% 35%, rgba(167,139,250,0.35), transparent),
+      radial-gradient(1px 1px at 65% 70%, rgba(255,255,255,0.5), transparent),
+      radial-gradient(1.5px 1.5px at 10% 50%, rgba(167,139,250,0.4), transparent),
+      radial-gradient(1px 1px at 90% 10%, rgba(255,255,255,0.45), transparent),
+      radial-gradient(1px 1px at 30% 80%, rgba(167,139,250,0.5), transparent),
+      radial-gradient(1.5px 1.5px at 60% 45%, rgba(255,255,255,0.35), transparent),
+      radial-gradient(1px 1px at 75% 30%, rgba(167,139,250,0.45), transparent),
+      radial-gradient(2px 2px at 5%  65%, rgba(255,255,255,0.4), transparent),
+      radial-gradient(1px 1px at 50% 55%, rgba(167,139,250,0.55), transparent);
+    background-color: rgba(4,4,12,1);
+    animation: panStarBg 40s linear infinite;
+    z-index: -1;
+    pointer-events: none;
+  }
+  @keyframes panStarBg {
+    0%   { transform: translate(0, 0) scale(1); }
+    25%  { transform: translate(-15px, -8px) scale(1.03); }
+    50%  { transform: translate(-5px, -18px) scale(1); }
+    75%  { transform: translate(-20px, -5px) scale(1.02); }
+    100% { transform: translate(0, 0) scale(1); }
   }
   /* Suppress every floating 3D-anchored UI element while a memory modal is
      open: enter-overlay (would re-show on unlock), painting captions (the
@@ -91,8 +158,23 @@
     background: rgba(8,8,14,0.92); backdrop-filter: blur(10px);
     max-width: 480px;
     box-shadow: 0 12px 64px rgba(0,0,0,0.6);
+    animation: fadeInSlideUp 0.8s ease-out both;
   }
-  .enter-card h1 { font-family: 'Playfair Display', serif; font-size: 32px; margin-bottom: 6px; }
+  @keyframes fadeInSlideUp {
+    0%   { opacity: 0; transform: translateY(16px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  /* Shadow-pulse on title — subtle breathing glow.
+     Inspired by 3D-art-gallery's shadow-pulse. */
+  .enter-card h1 {
+    font-family: 'Playfair Display', serif; font-size: 32px; margin-bottom: 6px;
+    text-shadow: 0 0 32px rgba(167,139,250,0.35);
+    animation: shadowPulse 3s ease-in-out infinite;
+  }
+  @keyframes shadowPulse {
+    0%, 100% { text-shadow: 0 0 24px rgba(167,139,250,0.25); }
+    50%      { text-shadow: 0 0 48px rgba(167,139,250,0.55); }
+  }
   .enter-card p { font-size: 13px; color: #a8a8b8; margin-bottom: 18px; }
   .enter-card .keys { font-size: 11px; color: #6b6b78; line-height: 1.8; }
   .enter-card .keys kbd {
@@ -248,6 +330,7 @@
     </button>
     <div class="hud-pill"><span class="dot"></span><span id="hudText">connecting…</span></div>
   </div>
+  <div id="micAnswer" class="mic-answer" style="display:none"></div>
 
   <div class="search-box">
     <input id="q" type="text" placeholder="dog at the beach…" autocomplete="off">
@@ -275,6 +358,10 @@
     <canvas id="minimap" width="360" height="360"></canvas>
   </div>
 
+  <button id="micBtn" class="mic-btn mic-btn-bottom" title="hold to ask — release to get answer">
+    <span class="mic-icon">🎤</span><span id="micLabel">ask</span>
+  </button>
+
   <div id="hubSearch" class="hub-search">
     <div class="heading">find a memory · top 4 results</div>
     <input id="hubSearchInput" type="text" placeholder="dog at the beach…" autocomplete="off">
@@ -299,6 +386,9 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
 const state = {
   layout: null,
@@ -314,6 +404,24 @@ const state = {
   pendingNewTotal: null,
   refreshing: false,
 };
+
+// ─── camera shake ───
+// Simple 3-octave noise: samples stacked sine waves at staggered frequencies
+// so each axis gets independent, uncorrelated motion (same principle as
+// ImprovedNoise in image-blaster, just smaller and simpler).
+const _shakeNoise = (t, offset) => {
+  return Math.sin(t * 17.3 + offset) * 0.5
+       + Math.sin(t * 31.7 + offset * 1.7) * 0.3
+       + Math.sin(t * 53.1 + offset * 2.9) * 0.2;
+};
+let _shakeIntensity = 0;       // decays toward 0 each frame
+let _shakeTime = 0;            // monotonic timer so shake varies over time
+
+/** Call when a "shake" event happens: teleport, doorway entry, resurface.
+ *  strength: 0.02 = barely perceptible, 0.08 = obvious jolt. */
+function triggerShake(strength = 0.05) {
+  _shakeIntensity = Math.max(_shakeIntensity, strength);
+}
 
 const THREAD_BASE_OPACITY = 0.13;
 const THREAD_HOT_OPACITY  = 0.85;
@@ -359,12 +467,25 @@ scene.fog = new THREE.Fog('#0b0b10', 14, 55);
 const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.05, 200);
 camera.position.set(0, 1.7, 8);
 
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.95;
+renderer.toneMappingExposure = 1.05;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+// Post-processing: bloom gives paintings a subtle glow against the dark walls.
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(innerWidth, innerHeight), 0.35, 0.15, 0.75,
+);
+bloomPass.threshold = 0.55;
+bloomPass.strength = 0.35;
+bloomPass.radius = 0.4;
+composer.addPass(bloomPass);
 
 const labelRenderer = new CSS2DRenderer();
 labelRenderer.setSize(innerWidth, innerHeight);
@@ -380,21 +501,128 @@ addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
   labelRenderer.setSize(innerWidth, innerHeight);
 });
 
+// ---------- procedural textures (Canvas-generated, no external files) ----------
+function _noiseCanvas(w, h, baseColor, grainStrength) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = baseColor; ctx.fillRect(0, 0, w, h);
+  const img = ctx.getImageData(0, 0, w, h);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const grain = (Math.random() - 0.5) * grainStrength;
+    img.data[i] = Math.min(255, Math.max(0, img.data[i] + grain));
+    img.data[i+1] = Math.min(255, Math.max(0, img.data[i+1] + grain));
+    img.data[i+2] = Math.min(255, Math.max(0, img.data[i+2] + grain));
+  }
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+
+function _plasterTex() {
+  // Warm plaster wall: cream base with subtle noise and horizontal brush strokes.
+  const W = 512, H = 512;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  // Base plaster color — warm cream
+  ctx.fillStyle = '#c8bfad'; ctx.fillRect(0, 0, W, H);
+  // Noise grain
+  const img = ctx.getImageData(0, 0, W, H);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 28;
+    img.data[i]   = Math.min(255, Math.max(0, img.data[i] + n));
+    img.data[i+1] = Math.min(255, Math.max(0, img.data[i+1] + n));
+    img.data[i+2] = Math.min(255, Math.max(0, img.data[i+2] + n));
+  }
+  ctx.putImageData(img, 0, 0);
+  // Horizontal trowel strokes
+  ctx.globalAlpha = 0.06;
+  for (let y = 0; y < H; y += 4) {
+    ctx.strokeStyle = Math.random() < 0.5 ? '#ffffff' : '#000000';
+    ctx.lineWidth = 1 + Math.random() * 3;
+    ctx.beginPath(); ctx.moveTo(0, y + Math.random() * 2); ctx.lineTo(W, y + Math.random() * 2); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+function _floorTex() {
+  // Dark polished concrete: deep charcoal with subtle aggregate speckle.
+  const W = 512, H = 512;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#1a1a1e'; ctx.fillRect(0, 0, W, H);
+  const img = ctx.getImageData(0, 0, W, H);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 18;
+    img.data[i] = Math.min(255, Math.max(0, img.data[i] + n));
+    img.data[i+1] = Math.min(255, Math.max(0, img.data[i+1] + n));
+    img.data[i+2] = Math.min(255, Math.max(0, img.data[i+2] + n));
+  }
+  ctx.putImageData(img, 0, 0);
+  // Aggregate speckles — lighter dots like polished stone
+  ctx.globalAlpha = 0.12;
+  for (let i = 0; i < 800; i++) {
+    ctx.fillStyle = Math.random() < 0.5 ? '#888' : '#666';
+    ctx.beginPath(); ctx.arc(Math.random() * W, Math.random() * H, 0.6 + Math.random() * 1.2, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}
+
+function _ceilingTex() {
+  // Matte dark ceiling with very subtle variation.
+  const c = _noiseCanvas(256, 256, '#101014', 8);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Cached procedural textures — generated once, reused across rebuilds.
+const _tex = {};
+
+function _getPlasterTex() { _tex.plaster ??= _plasterTex(); return _tex.plaster; }
+function _getFloorTex()   { _tex.floor   ??= _floorTex();   return _tex.floor; }
+function _getCeilingTex() { _tex.ceiling ??= _ceilingTex();  return _tex.ceiling; }
+
 // ---------- shared materials ----------
-const MAT_FLOOR = () => new THREE.MeshStandardMaterial({ color: 0x1c1c22, roughness: 0.85 });
-const MAT_CEIL  = () => new THREE.MeshStandardMaterial({ color: 0x14141a, roughness: 1.0 });
+const MAT_FLOOR = () => {
+  const tex = _getFloorTex();
+  tex.repeat.set(8, 8);
+  return new THREE.MeshStandardMaterial({ map: tex, roughness: 0.78, metalness: 0.05 });
+};
+const MAT_CEIL  = () => {
+  const tex = _getCeilingTex();
+  tex.repeat.set(6, 6);
+  return new THREE.MeshStandardMaterial({ map: tex, roughness: 1.0, metalness: 0.0 });
+};
 // DoubleSide so walls remain visible from both rooms — the hub-side wall has
 // to read both from inside the hub (player walking up to a door) and from
 // inside the connected room (player turning around to look back at the door).
-// FrontSide would make the wall vanish from one of those views.
-const MAT_WALL  = () => new THREE.MeshStandardMaterial({
-  color: 0xd8d2c5, roughness: 0.92, side: THREE.DoubleSide,
-});
+const MAT_WALL  = () => {
+  const tex = _getPlasterTex();
+  tex.repeat.set(4, 2);
+  return new THREE.MeshStandardMaterial({
+    map: tex, roughness: 0.88, metalness: 0.02, side: THREE.DoubleSide,
+  });
+};
 
-function trackShell(mesh) { state.shellMeshes.push(mesh); scene.add(mesh); }
+function trackShell(mesh) {
+  if (mesh.isMesh) { mesh.receiveShadow = true; mesh.castShadow = true; }
+  state.shellMeshes.push(mesh);
+  scene.add(mesh);
+}
 
 function clearShell() {
   for (const m of state.shellMeshes) {
@@ -449,8 +677,10 @@ function buildRoom(room) {
   trackShell(west);
   addWallSeg(-W / 2, -D / 2, -W / 2, D / 2);
 
-  scene.add(new THREE.HemisphereLight(0xfff5e6, 0x1a1a20, 0.32));
-  scene.add(new THREE.AmbientLight(0xffffff, 0.10));
+  const hemi = new THREE.HemisphereLight(0xfff5e6, 0x1a1a20, 0.38);
+  trackShell(hemi);
+  const amb = new THREE.AmbientLight(0xffffff, 0.12);
+  trackShell(amb);
 
   state.rooms = [{ id: 'main', cluster_id: null, label: '', color: '#888',
                    cx: 0, cz: 0, w: W, d: D }];
@@ -514,6 +744,42 @@ function buildHubSpoke(layout) {
       hdr.position.set(midX, hub.doorway_height + HEADER_H / 2, midZ);
       hdr.rotation.y = rotY;
       trackShell(hdr);
+      // Door frame arch — dark trim running around the doorway opening.
+      // Left + right pillars + top lintel bar.
+      const frameMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(sideMeta.color || '#444'),
+        roughness: 0.55, metalness: 0.3,
+      });
+      const frameDepth = 0.12, frameWidth = 0.10;
+      // Left pillar
+      const pillarL = new THREE.Mesh(
+        new THREE.BoxGeometry(frameWidth, hub.doorway_height, frameDepth), frameMat,
+      );
+      pillarL.position.set(
+        midX - tx * (halfDoor + frameWidth / 2),
+        hub.doorway_height / 2,
+        midZ - tz * (halfDoor + frameWidth / 2),
+      );
+      pillarL.rotation.y = rotY;
+      trackShell(pillarL);
+      // Right pillar
+      const pillarR = new THREE.Mesh(
+        new THREE.BoxGeometry(frameWidth, hub.doorway_height, frameDepth), frameMat,
+      );
+      pillarR.position.set(
+        midX + tx * (halfDoor + frameWidth / 2),
+        hub.doorway_height / 2,
+        midZ + tz * (halfDoor + frameWidth / 2),
+      );
+      pillarR.rotation.y = rotY;
+      trackShell(pillarR);
+      // Top cross-bar
+      const topBar = new THREE.Mesh(
+        new THREE.BoxGeometry(hub.doorway_width + frameWidth * 2, frameWidth, frameDepth), frameMat,
+      );
+      topBar.position.set(midX, hub.doorway_height + frameWidth / 2, midZ);
+      topBar.rotation.y = rotY;
+      trackShell(topBar);
       // Collision: 2 flank segments
       const eax1 = midX - tx * SIDE_LEN / 2, eaz1 = midZ - tz * SIDE_LEN / 2;
       const eax2 = midX - tx * halfDoor,     eaz2 = midZ - tz * halfDoor;
@@ -558,18 +824,21 @@ function buildHubSpoke(layout) {
     const back = new THREE.Mesh(new THREE.PlaneGeometry(W, RH), wallMat);
     back.position.set(0, RH / 2, +halfD);
     back.rotation.y = Math.PI;     // faces -Z (toward player)
+    back.receiveShadow = true; back.castShadow = true;
     group.add(back);
 
     // Left wall: local x = -halfW
     const left = new THREE.Mesh(new THREE.PlaneGeometry(D, RH), wallMat);
     left.position.set(-halfW, RH / 2, 0);
     left.rotation.y = Math.PI / 2; // faces +X
+    left.receiveShadow = true; left.castShadow = true;
     group.add(left);
 
     // Right wall: local x = +halfW
     const right = new THREE.Mesh(new THREE.PlaneGeometry(D, RH), wallMat);
     right.position.set(+halfW, RH / 2, 0);
     right.rotation.y = -Math.PI / 2; // faces -X
+    right.receiveShadow = true; right.castShadow = true;
     group.add(right);
 
     // Front wall is OWNED BY THE HUB SIDE — the hub already drew that
@@ -580,19 +849,24 @@ function buildHubSpoke(layout) {
     const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, D), MAT_CEIL());
     ceil.rotation.x = Math.PI / 2;
     ceil.position.set(0, RH, 0);
+    ceil.receiveShadow = true;
     group.add(ceil);
 
     // Collision walls already in WORLD coords from backend
     for (const w of room.walls) addWallSeg(w.x1, w.z1, w.x2, w.z2);
   }
 
-  // Hub spotlight at center for ambient lift
-  scene.add(new THREE.HemisphereLight(0xfff5e6, 0x1a1a20, 0.32));
-  scene.add(new THREE.AmbientLight(0xffffff, 0.10));
-  const hubLight = new THREE.PointLight(0xfff0d8, 0.8, 22, 1.4);
+  // Hub spotlight + ambient lift.
+  const hemi = new THREE.HemisphereLight(0xfff5e6, 0x1a1a20, 0.38);
+  trackShell(hemi);
+  const amb = new THREE.AmbientLight(0xffffff, 0.12);
+  trackShell(amb);
+  const hubLight = new THREE.PointLight(0xfff0d8, 1.0, 28, 1.2);
   hubLight.position.set(0, H_HUB - 0.5, 0);
-  scene.add(hubLight);
-  state.shellMeshes.push(hubLight);
+  hubLight.castShadow = true;
+  hubLight.shadow.mapSize.set(1024, 1024);
+  hubLight.shadow.bias = -0.0001;
+  trackShell(hubLight);
 }
 
 // (Old grid-based multi-room renderer removed — replaced by buildHubSpoke.)
@@ -617,13 +891,16 @@ function buildPanel(panel) {
 
   const spot = new THREE.SpotLight(
     new THREE.Color(panel.color).getHex(),
-    1.5, 16, Math.PI / 5, 0.55, 1.0,
+    1.8, 18, Math.PI / 5, 0.5, 1.0,
   );
   // Place spotlight ~1.8m off the wall, near the ceiling, aimed at panel center.
   const offX = panel.lintel.x - Math.sin(panel.rotation_y) * 1.8;
   const offZ = panel.lintel.z - Math.cos(panel.rotation_y) * 1.8;
   spot.position.set(offX, state.layout.room.height - 0.3, offZ);
   spot.target = target;
+  spot.castShadow = true;
+  spot.shadow.mapSize.set(1024, 1024);
+  spot.shadow.bias = -0.0001;
   scene.add(spot);
   state.panelsById.set(panel.id, { lintelObj, spot, target, panel });
 }
@@ -710,10 +987,13 @@ function buildRoomPanel(room) {
 
   const spot = new THREE.SpotLight(
     new THREE.Color(room.color).getHex(),
-    1.7, 18, Math.PI / 3.5, 0.5, 1.0,
+    1.8, 20, Math.PI / 3.5, 0.45, 1.0,
   );
   spot.position.set(room.world.cx, room.world.height - 0.3, room.world.cz);
   spot.target = target;
+  spot.castShadow = true;
+  spot.shadow.mapSize.set(1024, 1024);
+  spot.shadow.bias = -0.0001;
   scene.add(spot);
 
   // Stored as `lintelObj` to keep the rest of the code (visibility toggling,
@@ -739,31 +1019,38 @@ const placeholderTex = (() => {
 })();
 
 function buildPainting(panel, mem) {
-  // Frame: slightly larger plane behind the painting, in cluster color.
+  const nx = Math.sin(mem.rotation_y), nz = Math.cos(mem.rotation_y);
+
+  // Simple flat frame: slightly larger plane behind painting, cluster-colored.
   const frameMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(panel.color),
-    roughness: 0.45, metalness: 0.55,
+    color: new THREE.Color(panel.color), roughness: 0.4, metalness: 0.5,
   });
   const frame = new THREE.Mesh(
-    new THREE.PlaneGeometry(mem.width + 0.08, mem.height + 0.08),
+    new THREE.PlaneGeometry(mem.width + 0.06, mem.height + 0.06),
     frameMat,
   );
   frame.position.set(mem.x, mem.y, mem.z);
   frame.rotation.y = mem.rotation_y;
+  frame.receiveShadow = true;
   scene.add(frame);
 
-  // Painting plane sits 5mm in front of the frame so it never z-fights.
+  // Painting plane sits 3mm in front of frame.
   const tex = placeholderTex.clone();
-  const pMat = new THREE.MeshBasicMaterial({ map: tex, color: 0xffffff });
+  // MeshBasicMaterial is unlit — painting shows at its true pixel brightness,
+  // the way a real museum would light artwork evenly. MeshStandardMaterial
+  // absorbs scene light and makes paintings look darker than the original.
+  const pMat = new THREE.MeshBasicMaterial({
+    map: tex, color: 0xffffff,
+  });
   const painting = new THREE.Mesh(new THREE.PlaneGeometry(mem.width, mem.height), pMat);
-  const nx = Math.sin(mem.rotation_y), nz = Math.cos(mem.rotation_y);
-  painting.position.set(mem.x + nx * 0.005, mem.y, mem.z + nz * 0.005);
+  painting.position.set(mem.x + nx * 0.003, mem.y, mem.z + nz * 0.003);
   painting.rotation.y = mem.rotation_y;
+  painting.castShadow = true; painting.receiveShadow = true;
   painting.userData = { kind: 'painting', mem, panel };
   scene.add(painting);
   state.paintingsById.set(mem.id, painting);
 
-  // CSS2D caption sits just below the painting; hidden until hover.
+  // CSS2D caption just below painting.
   const cap = document.createElement('div');
   cap.className = 'caption';
   cap.innerHTML = `<b>${escapeHtml(mem.type || '?')}</b> · ${escapeHtml(mem.match_caption)}`;
@@ -780,7 +1067,6 @@ function buildPainting(panel, mem) {
   painting.userData.frameMat = frameMat;
   painting.userData.paintingMat = pMat;
 
-  // Throttled thumbnail load — see loadThumbnail() comment for why this matters.
   loadThumbnail(mem.thumb_url, (tex) => {
     tex.colorSpace = THREE.SRGBColorSpace;
     pMat.map = tex;
@@ -819,15 +1105,13 @@ function tweenPainting(id, newMem, newPanel) {
   const nx = Math.sin(newRotY), nz = Math.cos(newRotY);
   const toFramePos = new THREE.Vector3(newMem.x, newMem.y, newMem.z);
   const toPaintingPos = new THREE.Vector3(
-    newMem.x + nx * 0.005, newMem.y, newMem.z + nz * 0.005,
+    newMem.x + nx * 0.003, newMem.y, newMem.z + nz * 0.003,
   );
-  // If panel (cluster) changed, retint the frame to the new cluster color.
   if (newPanel && p.userData.panel.cluster_id !== newPanel.cluster_id) {
     p.userData.frameMat.color.set(newPanel.color);
     p.userData.panel = newPanel;
   }
   p.userData.mem = newMem;
-
   const t0 = performance.now();
   function step() {
     const t = Math.min(1, (performance.now() - t0) / TWEEN_MS);
@@ -855,6 +1139,7 @@ function tweenPainting(id, newMem, newPanel) {
 // in the show. On hover we brighten the hovered painting's outgoing threads and
 // dim every other so the user can read its connections without losing the field.
 function buildAllThreads() {
+  return; // red S-lines deactivated
   if (!state.layout) return;
   // Ceiling height varies by mode: single-room → room.height,
   // hub-spoke → hub.height (use the taller hub so threads fly between rooms
@@ -989,26 +1274,23 @@ function applyLayout(newLayout) {
   // Diff paintings
   for (const id of oldIds) {
     if (!newMemMap.has(id)) {
-      // Memory deleted -> fade out by shrinking opacity over a few frames
       const p = state.paintingsById.get(id);
       if (p && p.userData.paintingMat) {
         const mat = p.userData.paintingMat;
         const fmat = p.userData.frameMat;
         mat.transparent = true;
-        fmat.transparent = true;
+        if (fmat) fmat.transparent = true;
         const t0 = performance.now();
         const dur = 400;
         function fade() {
           const t = Math.min(1, (performance.now() - t0) / dur);
           mat.opacity = 1 - t;
-          fmat.opacity = 1 - t;
+          if (fmat) fmat.opacity = 1 - t;
           if (t < 1) requestAnimationFrame(fade);
           else removePainting(id);
         }
         fade();
-      } else {
-        removePainting(id);
-      }
+      } else { removePainting(id); }
     }
   }
   for (const [id, { mem, panel }] of newMemMap) {
@@ -1016,21 +1298,20 @@ function applyLayout(newLayout) {
       tweenPainting(id, mem, panel);
     } else {
       buildPainting(panel, mem);
-      // Fade in
       const p = state.paintingsById.get(id);
       if (p) {
         const mat = p.userData.paintingMat;
         const fmat = p.userData.frameMat;
         mat.transparent = true;
-        fmat.transparent = true;
+        if (fmat) fmat.transparent = true;
         mat.opacity = 0;
-        fmat.opacity = 0;
+        if (fmat) fmat.opacity = 0;
         const t0 = performance.now();
         const dur = 600;
         function rise() {
           const t = Math.min(1, (performance.now() - t0) / dur);
           mat.opacity = t;
-          fmat.opacity = t;
+          if (fmat) fmat.opacity = t;
           if (t < 1) requestAnimationFrame(rise);
         }
         rise();
@@ -1101,6 +1382,106 @@ function setupEvents() {
   ev.onerror = () => { /* browser auto-reconnects; no UI noise */ };
 }
 
+// ---------- voice assistant (mic button in HUD) ----------
+{
+  const btn = document.getElementById('micBtn');
+  const label = document.getElementById('micLabel');
+  const answerEl = document.getElementById('micAnswer');
+  let recorder = null, chunks = [];
+
+  // Push-to-talk: hold mic button to record, release to ask.
+  btn.addEventListener('pointerdown', async () => {
+    if (recorder) return; // already recording (shouldn't happen)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      chunks = [];
+      recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+      recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        btn.classList.remove('listening');
+        label.textContent = 'thinking…';
+        try {
+          // 1) Transcribe
+          const blob = new Blob(chunks, { type: 'audio/webm' });
+          const fd = new FormData();
+          fd.append('audio', blob, 'recording.webm');
+          const tr = await fetch('/transcribe', { method: 'POST', body: fd });
+          const { text } = await tr.json();
+          if (!text?.trim()) throw new Error('no speech detected');
+          // 2) Ask (server synthesizes answer via LLM)
+          const ar = await fetch('/ask', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question: text }),
+          });
+          const askData = await ar.json();
+          const answer = askData.answer || 'sorry, nothing matched';
+          // 3) Speak it
+          speakText(answer);
+          // 4) Show text bubble
+          answerEl.textContent = answer;
+          answerEl.style.display = 'block';
+          setTimeout(() => { answerEl.style.display = 'none'; }, 8000);
+        } catch (err) {
+          speakText("sorry, I didn't catch that");
+          answerEl.textContent = '… try again';
+          answerEl.style.display = 'block';
+          setTimeout(() => { answerEl.style.display = 'none'; }, 3000);
+        }
+        label.textContent = 'ask';
+        recorder = null;
+      };
+      recorder.start();
+      btn.classList.add('listening');
+      label.textContent = 'listening…';
+    } catch (err) {
+      label.textContent = 'ask';
+      recorder = null;
+      speakText('microphone access denied');
+    }
+  });
+
+  // Cancel on pointer leave (user dragged off button)
+  btn.addEventListener('pointerleave', () => {
+    if (recorder && recorder.state === 'recording') {
+      recorder.stop();
+    }
+  });
+
+  function buildAnswer(question, results) {
+    if (!results.length) return 'no memories matched that question';
+    const top = results.slice(0, 3);
+    const parts = top.map((r, i) => {
+      const type = ({ photo: 'photo', video: 'video', voice_memo: 'voice memo', screenshot: 'screenshot' })[r.type] || r.type;
+      const ts = r.timestamp ? fmtAgo(r.timestamp) : '';
+      const extra = r.transcript ? ` — "${r.transcript.slice(0, 80)}"` : (r.ocr_text ? ` — "${r.ocr_text.slice(0, 80)}"` : '');
+      return `#${i + 1}: ${type} from ${ts}${extra}`;
+    });
+    return `found ${results.length} memories. ${parts.join('. ')}`;
+  }
+
+  function speakText(text) {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'en-US';
+    u.rate = 0.95;
+    window.speechSynthesis.speak(u);
+  }
+
+  // fmtAgo local copy so the voice module doesn't depend on search page imports
+  function fmtAgo(ts) {
+    if (!ts) return '';
+    const ms = Date.now() - ts * 1000;
+    const d = Math.floor(ms / 86400000);
+    if (d === 0) return 'today';
+    if (d === 1) return 'yesterday';
+    if (d < 30) return `${d} days ago`;
+    return `${Math.floor(d / 30)} months ago`;
+  }
+}
+
 // ---------- minimap ----------
 // Top-down 2D map of the museum. Rooms are colored rectangles, doorways are
 // gaps in walls, the player is an arrow whose direction follows the camera.
@@ -1168,58 +1549,67 @@ function teleportTo(wx, wz) {
     }
     if (best) {
       controls.getObject().position.set(best.cx, 1.7, best.cz);
+      triggerShake(0.06);  // room warp jolt
       return;
     }
   }
   controls.getObject().position.set(wx, 1.7, wz);
+  triggerShake(0.04);
 }
 
 function drawMinimap() {
   const ctx = minimapState.ctx;
   if (!ctx) return;
-  // Subtle radial-feel background using a faux gradient (stop count = 2 keeps
-  // it cheap on every frame).
-  const bg = ctx.createRadialGradient(90, 90, 10, 90, 90, 110);
-  bg.addColorStop(0, '#13131c');
+  const W = 180, H = 180;
+
+  // Dark background with subtle radial gradient.
+  const bg = ctx.createRadialGradient(W/2, H/2, 10, W/2, H/2, 120);
+  bg.addColorStop(0, '#18181f');
   bg.addColorStop(1, '#0a0a10');
   ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, 180, 180);
+  ctx.fillRect(0, 0, W, H);
+
+  // Outer border ring.
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.roundRect(0.5, 0.5, W-1, H-1, 8); ctx.stroke();
 
   const s = minimapState.scale, ox = minimapState.offsetX, oy = minimapState.offsetY;
 
-  // Hub: octagon-shaped fill at origin (only in hub-spoke mode).
+  // Hub: octagon (only in hub-spoke mode).
   if (state.layout?.mode === 'hub-spoke') {
     const A = state.layout.hub.apothem;
-    const cx0 = 0 * s + ox, cz0 = 0 * s + oy;
+    const cx0 = ox, cz0 = oy;
     const r = A * s / Math.cos(Math.PI / 8);
     ctx.beginPath();
     for (let i = 0; i < 8; i++) {
       const a = Math.PI / 8 + i * Math.PI / 4;
-      const px = cx0 + r * Math.cos(a);
-      const py = cz0 + r * Math.sin(a);
-      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      const px = cx0 + r * Math.cos(a), py = cz0 + r * Math.sin(a);
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
     }
     ctx.closePath();
-    ctx.fillStyle = 'rgba(167,139,250,0.10)';
+    ctx.fillStyle = 'rgba(167,139,250,0.08)';
     ctx.fill();
-    ctx.strokeStyle = 'rgba(167,139,250,0.55)';
-    ctx.lineWidth = 1.3;
+    ctx.strokeStyle = 'rgba(167,139,250,0.5)';
+    ctx.lineWidth = 1.2;
     ctx.stroke();
+    // "HUB" label
+    ctx.fillStyle = 'rgba(167,139,250,0.45)';
+    ctx.font = '700 7px Inter, system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('HUB', ox, oy);
   }
 
-  // Rooms: rounded rectangles, rotation-aware (the hub-spoke rooms are
-  // rotated to face the hub, so plain axis-aligned rects would render at the
-  // wrong angle on the map).
+  // Rooms: rounded rectangles, rotation-aware.
   for (const r of state.rooms) {
-    if (r.id === 'main') continue;  // single-room: skip drawing — it IS the map
+    if (r.id === 'main') continue;
     const cx = r.cx * s + ox, cz = r.cz * s + oy;
     const halfW = (r.w * s) / 2, halfH = (r.d * s) / 2;
     const rotY = r.rotation_y || 0;
     ctx.save();
     ctx.translate(cx, cz);
     ctx.rotate(rotY);
-    // Rounded rect path
-    const rad = Math.min(4, halfW, halfH);
+    const rad = Math.min(3, halfW, halfH);
     ctx.beginPath();
     ctx.moveTo(-halfW + rad, -halfH);
     ctx.lineTo(+halfW - rad, -halfH);
@@ -1231,30 +1621,61 @@ function drawMinimap() {
     ctx.lineTo(-halfW, -halfH + rad);
     ctx.quadraticCurveTo(-halfW, -halfH, -halfW + rad, -halfH);
     ctx.closePath();
+    // Gradient fill — top lighter, bottom darker
     const grad = ctx.createLinearGradient(0, -halfH, 0, +halfH);
-    grad.addColorStop(0, hexToRgba(r.color || '#888', 0.30));
-    grad.addColorStop(1, hexToRgba(r.color || '#888', 0.12));
+    grad.addColorStop(0, hexToRgba(r.color || '#888', 0.35));
+    grad.addColorStop(1, hexToRgba(r.color || '#888', 0.10));
     ctx.fillStyle = grad;
     ctx.fill();
-    ctx.strokeStyle = hexToRgba(r.color || '#aaa', 0.85);
-    ctx.lineWidth = 1.1;
+    ctx.strokeStyle = hexToRgba(r.color || '#aaa', 0.8);
+    ctx.lineWidth = 1;
     ctx.stroke();
     ctx.restore();
 
-    // Label drawn upright at world room center (always readable, never
-    // upside-down even when room is rotated).
+    // Label with dark pill background so it's always readable.
     if (r.label) {
-      ctx.fillStyle = '#e8e8ee';
-      ctx.font = '600 8px Inter, system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(truncate(r.label, 12), cx, cz);
+      const text = truncate(r.label, 14);
+      ctx.font = '600 9px Inter, system-ui, sans-serif';
+      const tm = ctx.measureText(text);
+      const pw = tm.width + 8, ph = 14;
+      // Pill background
+      ctx.fillStyle = 'rgba(8,8,14,0.85)';
+      ctx.beginPath();
+      ctx.roundRect(cx - pw/2, cz - ph/2, pw, ph, 6);
+      ctx.fill();
+      ctx.strokeStyle = hexToRgba(r.color || '#666', 0.5);
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+      // Text
+      ctx.fillStyle = '#f0f0f4';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(text, cx, cz);
     }
   }
 
-  // Walls — thin desaturated strokes so doorway gaps read at a glance.
-  ctx.strokeStyle = 'rgba(255,255,255,0.10)';
-  ctx.lineWidth = 0.8;
+  // Door indicators: short lighter strokes where doorways are (drawn
+  // perpendicular to each room's front wall).
+  if (state.layout?.mode === 'hub-spoke') {
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 0.8;
+    for (const r of state.rooms) {
+      if (r.id === 'main') continue;
+      const rotY = r.rotation_y || 0;
+      // Door center in world coords (front of room)
+      const doorX = r.cx - Math.sin(rotY) * (r.d / 2);
+      const doorZ = r.cz - Math.cos(rotY) * (r.d / 2);
+      // Short stroke perpendicular to door (along room front)
+      const tx = Math.cos(rotY) * 3, tz = -Math.sin(rotY) * 3;
+      ctx.beginPath();
+      ctx.moveTo((doorX - tx) * s + ox, (doorZ - tz) * s + oy);
+      ctx.lineTo((doorX + tx) * s + ox, (doorZ + tz) * s + oy);
+      ctx.stroke();
+    }
+  }
+
+  // Walls — thin desaturated strokes.
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 0.6;
   ctx.beginPath();
   for (const w of state.walls) {
     ctx.moveTo(w.x1 * s + ox, w.z1 * s + oy);
@@ -1262,27 +1683,32 @@ function drawMinimap() {
   }
   ctx.stroke();
 
-  // Player arrow with a soft glow halo
+  // Player arrow with glow halo + pulse.
   const obj = controls.getObject();
   const px = obj.position.x * s + ox;
   const pz = obj.position.z * s + oy;
   const dir = new THREE.Vector3();
   camera.getWorldDirection(dir);
   const ang = Math.atan2(dir.x, dir.z);
+  // Pulse: subtle size oscillation
+  const pulse = 1 + 0.15 * Math.sin(performance.now() / 800);
   ctx.save();
   ctx.translate(px, pz);
-  ctx.beginPath();
-  ctx.arc(0, 0, 8, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(167,139,250,0.18)';
-  ctx.fill();
+  // Glow halo
+  const halo = ctx.createRadialGradient(0, 0, 2, 0, 0, 11 * pulse);
+  halo.addColorStop(0, 'rgba(167,139,250,0.45)');
+  halo.addColorStop(1, 'rgba(167,139,250,0)');
+  ctx.fillStyle = halo;
+  ctx.beginPath(); ctx.arc(0, 0, 11 * pulse, 0, Math.PI * 2); ctx.fill();
+  // Direction arrow
   ctx.rotate(ang);
   ctx.fillStyle = '#A78BFA';
-  ctx.strokeStyle = 'rgba(8,8,14,0.7)';
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(8,8,14,0.8)';
+  ctx.lineWidth = 0.8;
   ctx.beginPath();
-  ctx.moveTo(0, -6);
-  ctx.lineTo(4.5, 4);
-  ctx.lineTo(-4.5, 4);
+  ctx.moveTo(0, -5.5);
+  ctx.lineTo(4, 3.5);
+  ctx.lineTo(-4, 3.5);
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
@@ -1628,19 +2054,32 @@ function flyTo(painting) {
     painting.position.z + nz * 2.5,
   );
   const startPos = controls.getObject().position.clone();
-  const lookAt = painting.position.clone();
-  const dur = 900;
+  const lookAtTarget = painting.position.clone();
+
+  // Smooth lookAt: lerp the direction vector from current to target.
+  const startDir = new THREE.Vector3();
+  camera.getWorldDirection(startDir);
+  const desiredDir = lookAtTarget.clone().sub(startPos).normalize();
+
+  const dur = 1000;
   const t0 = performance.now();
   function step() {
-    const t = Math.min(1, (performance.now() - t0) / dur);
-    const ease = 1 - Math.pow(1 - t, 3);
+    const raw = Math.min(1, (performance.now() - t0) / dur);
+    const ease = 1 - Math.pow(1 - raw, 3);   // ease-out cubic
     const obj = controls.getObject();
     obj.position.lerpVectors(startPos, targetPos, ease);
-    camera.lookAt(lookAt);
-    if (t < 1) requestAnimationFrame(step);
+    // Smoothly rotate toward the painting
+    const curDir = new THREE.Vector3();
+    camera.getWorldDirection(curDir);
+    curDir.lerp(desiredDir, 1 - Math.pow(0.001, raw)).normalize();
+    const point = obj.position.clone().add(curDir);
+    camera.lookAt(point);
+    if (raw < 1) requestAnimationFrame(step);
     else {
+      camera.lookAt(lookAtTarget);
       const entry = state.panelsById.get(painting.userData.panel.id);
       if (entry) pulseSpot(entry.spot);
+      triggerShake(0.04);  // soft bump on arrival
     }
   }
   step();
@@ -1661,20 +2100,49 @@ function pulseSpot(spot) {
 // ---------- modal ----------
 const modal = document.getElementById('modal');
 const modalContent = document.getElementById('modalContent');
+let _modalOpenId = null;  // currently shown painting id
+
 function _closeModal() {
-  // Stop any media playback BEFORE clearing innerHTML, otherwise audio can
-  // keep playing in the background until garbage collection.
   modalContent.querySelectorAll('video, audio').forEach((el) => {
     try { el.pause(); el.removeAttribute('src'); el.load(); } catch {}
   });
   modal.classList.remove('show');
   document.body.classList.remove('modal-open');
-  // Clear the modal innards so the next open starts fresh and any lingering
-  // media element references die.
   modalContent.innerHTML = '';
+  _modalOpenId = null;
 }
 document.getElementById('closeModal').addEventListener('click', _closeModal);
 modal.addEventListener('click', (e) => { if (e.target === modal) _closeModal(); });
+
+// Keyboard navigation: ← → browse paintings in the same room/panel.
+addEventListener('keydown', (e) => {
+  if (!_modalOpenId || !modal.classList.contains('show')) return;
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === 'Escape') { _closeModal(); return; }
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  e.preventDefault();
+  const painting = state.paintingsById.get(_modalOpenId);
+  if (!painting) return;
+  const panel = painting.userData.panel;
+  // Build ordered list of paintings in the same panel/room.
+  let siblings = [];
+  const sections = state.layout?.mode === 'hub-spoke'
+    ? state.layout?.rooms : state.layout?.panels;
+  if (sections) {
+    for (const sec of sections) {
+      if (sec.id === panel.id || sec.cluster_id === panel.cluster_id) {
+        siblings = sec.memories || []; break;
+      }
+    }
+  }
+  if (siblings.length < 2) return;
+  const curIdx = siblings.findIndex((m) => m.id === _modalOpenId);
+  if (curIdx === -1) return;
+  const nextIdx = e.key === 'ArrowRight'
+    ? (curIdx + 1) % siblings.length
+    : (curIdx - 1 + siblings.length) % siblings.length;
+  openModal(siblings[nextIdx].id);
+});
 
 function openModal(id) {
   const painting = state.paintingsById.get(id);
@@ -1690,10 +2158,27 @@ function openModal(id) {
     mediaHtml = `<audio controls src="${mem.media_url}" style="width:100%"></audio>`;
   }
   const ts = mem.timestamp ? new Date(mem.timestamp * 1000).toLocaleString() : '—';
+  // Find position for "N of M" counter.
+  let posText = '';
+  const sections = state.layout?.mode === 'hub-spoke'
+    ? state.layout?.rooms : state.layout?.panels;
+  if (sections) {
+    for (const sec of sections) {
+      if (sec.id === panel.id || sec.cluster_id === panel.cluster_id) {
+        const siblings = sec.memories || [];
+        const idx = siblings.findIndex((m) => m.id === id);
+        if (idx !== -1) posText = `${idx + 1} of ${siblings.length}`;
+        break;
+      }
+    }
+  }
   modalContent.innerHTML = `
     ${mediaHtml}
     <div class="meta">
-      <div><b style="color:var(--accent)">${escapeHtml(mem.type || '?')}</b> · ${ts}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span><b style="color:var(--accent)">${escapeHtml(mem.type || '?')}</b> · ${ts}</span>
+        ${posText ? `<span style="font-size:10px;color:#6b6b78;letter-spacing:0.06em">${posText} &nbsp;← →</span>` : ''}
+      </div>
       <div>cluster <b style="color:${panel.color}">#${panel.cluster_id} · ${escapeHtml(panel.label)}</b></div>
       <div>${escapeHtml(mem.match_caption)}</div>
       ${mem.transcript ? `<div style="margin-top:8px;color:#a8a8b8">"${escapeHtml(mem.transcript)}"</div>` : ''}
@@ -1701,8 +2186,7 @@ function openModal(id) {
     </div>
   `;
   document.body.classList.add('modal-open');
-  // Drop any active hover so the caption pill doesn't keep its .show class
-  // and reappear the instant the modal closes.
+  _modalOpenId = id;
   if (state.hoverId) {
     const prev = state.paintingsById.get(state.hoverId);
     if (prev) prev.userData.captionEl.classList.remove('show');
@@ -1749,7 +2233,22 @@ function animate() {
     updateLintelVisibility();
   }
 
-  renderer.render(scene, camera);
+  // camera shake — apply right before render so it doesn't affect collision
+  if (_shakeIntensity > 0.0005) {
+    _shakeTime += dt;
+    const s = _shakeIntensity;
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+    const up    = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+    camera.position.addScaledVector(right, _shakeNoise(_shakeTime, 0.0) * s * 0.7);
+    camera.position.addScaledVector(up,    _shakeNoise(_shakeTime, 3.14) * s * 0.5);
+    // slight rotational jitter
+    camera.rotateX(_shakeNoise(_shakeTime, 1.57) * s * 0.15);
+    camera.rotateY(_shakeNoise(_shakeTime, 4.71) * s * 0.1);
+    // exponential decay — half-life ~0.25s
+    _shakeIntensity *= Math.exp(-dt / 0.25);
+  }
+
+  composer.render();
   labelRenderer.render(scene, camera);
 }
 

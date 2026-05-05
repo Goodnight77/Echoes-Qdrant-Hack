@@ -4,12 +4,18 @@ Design
 ------
 - One Qdrant point per detected face (NOT per memory). A photo with 3 faces -> 3 points.
 - Single named vector `embedding` (512-d ArcFace).
-- Payload: {memory_id, bbox, det_score, cluster_id, label?}.
+- Payload: {memory_id, bbox, det_score, quality, cluster_id, label?}.
+  `quality` is a composite score (sharpness × box_size_weight × det_score)
+  used for exemplar selection — the sharpest, largest, most confident face
+  becomes the cluster avatar.
 - Cluster assignment: query existing faces collection for nearest neighbor.
   If cosine >= COS_THRESHOLD -> inherit that face's cluster_id (joins cluster).
   Else -> new cluster_id (uuid).
 - Labels live as redundant payload on every face in the cluster. Labeling a cluster
   iterates faces with that cluster_id and sets `label`.
+- Person label preservation: before scan_all_photos wipes the collection, named
+  clusters are saved by memory_id. After re-scan, new clusters that share >=50%
+  of memory_ids with an old named cluster inherit the label.
 
 Safety
 ------
@@ -44,6 +50,10 @@ COS_THRESHOLD = 0.45
 MIN_DET_SCORE = 0.5  # InsightFace detector confidence floor
 MIN_FACE_PIXELS = 40  # bbox shorter side; below this, embedding is unreliable
 
+# Label restoration: old cluster inherits label if >= this fraction of its
+# memory_ids overlap with a new cluster (Jaccard-like on the smaller set).
+LABEL_RESTORE_OVERLAP = 0.5
+
 _NS = uuid.UUID("9f6c7e2d-3b1f-4d8e-a4c2-7e9f0a1b2c3d")
 
 
@@ -68,6 +78,34 @@ def ensure_faces_collection(client: QdrantClient) -> None:
         collection_name=FACES_COLLECTION,
         vectors_config=VectorParams(size=FACE_DIM, distance=Distance.COSINE),
     )
+
+
+def _face_sharpness(arr: np.ndarray, bbox: list[float]) -> float:
+    """Estimate face-crop sharpness via Laplacian variance.
+    Higher = sharper. Normalised to ~[0, 1] range; values above 1.0 are clamped."""
+    x1, y1, x2, y2 = map(int, bbox)
+    H, W = arr.shape[:2]
+    crop = arr[max(0, y1):min(H, y2), max(0, x1):min(W, x2)]
+    if crop.size == 0:
+        return 0.0
+    gray = crop if crop.ndim == 2 else np.dot(crop[..., :3], [0.299, 0.587, 0.114])
+    lap = np.array([[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=np.float32)
+    from scipy.ndimage import convolve
+    var = float(convolve(gray.astype(np.float32), lap).var())
+    # Laplacian variance for typical face crops: ~50 is very sharp, ~500 is excellent.
+    return min(var / 250.0, 1.0)
+
+
+def _face_quality(arr: np.ndarray, bbox: list[float], det_score: float) -> float:
+    """Composite quality score for exemplar selection.
+    Weights: sharpness 0.4, box_size 0.3, detector_confidence 0.3.
+    Returns 0.0–1.0 range."""
+    sharp = _face_sharpness(arr, bbox)
+    x1, y1, x2, y2 = bbox
+    box_area = (x2 - x1) * (y2 - y1)
+    # Box area ~2500 px² = score 0.5, ~10000 px² = 1.0 (saturates).
+    box_norm = min(box_area / 10000.0, 1.0)
+    return 0.4 * sharp + 0.3 * box_norm + 0.3 * det_score
 
 
 def _to_rgb_array(image_or_path) -> np.ndarray:
@@ -95,9 +133,11 @@ def detect_and_embed(image_or_path) -> list[dict]:
         if min(w, h) < MIN_FACE_PIXELS:
             continue
         emb = np.asarray(f.normed_embedding, dtype=np.float32)
+        quality = _face_quality(arr, bbox, det_score)
         out.append({
             "bbox": bbox,
             "det_score": det_score,
+            "quality": round(quality, 4),
             "embedding": emb.tolist(),
         })
     return out
@@ -137,6 +177,7 @@ def index_faces_for_memory(
             "memory_id": str(memory_id),
             "bbox": d["bbox"],
             "det_score": d["det_score"],
+            "quality": d.get("quality", 0.0),
             "cluster_id": cluster_id,
         }
         if inherited_label:
@@ -169,15 +210,16 @@ def list_clusters(client: QdrantClient) -> list[dict]:
                 "label": payload.get("label"),
                 "count": 0,
                 "sample_face_id": str(p.id),
-                "sample_score": float(payload.get("det_score") or 0.0),
+                "sample_quality": float(payload.get("quality") or 0.0),
                 "memory_ids": set(),
             })
             entry["count"] += 1
             entry["memory_ids"].add(payload.get("memory_id"))
-            # Pick highest detection-score face as the cluster avatar.
-            if float(payload.get("det_score") or 0.0) > entry["sample_score"]:
+            # Pick highest-quality face as the cluster avatar.
+            q = float(payload.get("quality") or 0.0)
+            if q > entry["sample_quality"]:
                 entry["sample_face_id"] = str(p.id)
-                entry["sample_score"] = float(payload.get("det_score") or 0.0)
+                entry["sample_quality"] = q
             if payload.get("label") and not entry["label"]:
                 entry["label"] = payload.get("label")
         if offset is None:
@@ -189,6 +231,7 @@ def list_clusters(client: QdrantClient) -> list[dict]:
             "label": v["label"],
             "count": v["count"],
             "sample_face_id": v["sample_face_id"],
+            "sample_quality": round(v["sample_quality"], 4),
             "memory_count": len(v["memory_ids"]),
         })
     out.sort(key=lambda x: x["count"], reverse=True)
@@ -425,10 +468,110 @@ def remove_faces_for_memory(client: QdrantClient, memory_id: str) -> int:
     return len(ids)
 
 
+def remove_faces_for_cluster(client: QdrantClient, cluster_id: str) -> int:
+    """Delete every face in a cluster. Returns count of removed face points."""
+    ensure_faces_collection(client)
+    flt = Filter(must=[FieldCondition(key="cluster_id", match=MatchValue(value=cluster_id))])
+    pts, _ = client.scroll(
+        collection_name=FACES_COLLECTION,
+        scroll_filter=flt,
+        limit=4096,
+        with_payload=False,
+        with_vectors=False,
+    )
+    if not pts:
+        return 0
+    ids = [p.id for p in pts]
+    client.delete(collection_name=FACES_COLLECTION, points_selector=ids)
+    return len(ids)
+
+
+def _collect_named_people(client: QdrantClient) -> dict[str, set[str]]:
+    """Snapshot named clusters before a wipe: {label_lower: set(memory_ids)}.
+
+    Only clusters that have at least one labeled face are saved. The memory_ids
+    are the union across all faces in the cluster — they survive re-clustering
+    because the same photos get re-detected.
+    """
+    named: dict[str, set[str]] = {}
+    offset = None
+    while True:
+        pts, offset = client.scroll(
+            collection_name=FACES_COLLECTION,
+            limit=512,
+            with_payload=True,
+            with_vectors=False,
+            offset=offset,
+        )
+        for p in pts:
+            pl = p.payload or {}
+            label = (pl.get("label") or "").strip()
+            if not label:
+                continue
+            cid = pl.get("cluster_id")
+            mid = pl.get("memory_id")
+            if not cid or not mid:
+                continue
+            key = label.lower()
+            named.setdefault(key, set()).add(str(mid))
+        if offset is None:
+            break
+    return named
+
+
+def _restore_named_people(client: QdrantClient, named: dict[str, set[str]]) -> int:
+    """After re-scan, match old named clusters to new clusters by memory_id overlap.
+
+    If a new cluster shares >= LABEL_RESTORE_OVERLAP of an old cluster's memory_ids,
+    label the new cluster with that name. Returns number of restorations applied.
+    """
+    if not named:
+        return 0
+    # Build new clusters: {cluster_id: set(memory_ids)}
+    new_clusters: dict[str, set[str]] = {}
+    offset = None
+    while True:
+        pts, offset = client.scroll(
+            collection_name=FACES_COLLECTION,
+            limit=512,
+            with_payload=True,
+            with_vectors=False,
+            offset=offset,
+        )
+        for p in pts:
+            pl = p.payload or {}
+            cid = pl.get("cluster_id")
+            mid = pl.get("memory_id")
+            if cid and mid:
+                new_clusters.setdefault(str(cid), set()).add(str(mid))
+        if offset is None:
+            break
+
+    restored = 0
+    for label_lower, old_mids in named.items():
+        best_cid = None
+        best_overlap = 0.0
+        for new_cid, new_mids in new_clusters.items():
+            overlap = len(old_mids & new_mids)
+            ratio = overlap / max(len(old_mids), 1)
+            if ratio >= LABEL_RESTORE_OVERLAP and ratio > best_overlap:
+                best_overlap = ratio
+                best_cid = new_cid
+        if best_cid:
+            set_cluster_label(client, best_cid, label_lower)
+            restored += 1
+
+    return restored
+
+
 def scan_all_photos(client: QdrantClient) -> dict:
     """Re-run face detection across every photo/screenshot in `memories` collection."""
     from indexer import COLLECTION as MEM_COLLECTION
     ensure_faces_collection(client)
+
+    # Preserve named clusters before wiping.
+    named = _collect_named_people(client)
+
     # Wipe existing faces collection first to avoid stale clusters.
     client.delete_collection(FACES_COLLECTION)
     ensure_faces_collection(client)
@@ -462,4 +605,9 @@ def scan_all_photos(client: QdrantClient) -> dict:
                 counts["skipped"] += 1
         if offset is None:
             break
+
+    # Restore labels from old clusters into new clusters.
+    restored = _restore_named_people(client, named)
+    if restored:
+        counts["labels_restored"] = restored
     return counts

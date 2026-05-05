@@ -20,9 +20,11 @@ MAX_SAMPLES_PER_CLUSTER = 10           # don't blow tokens on huge clusters
 _SYSTEM_PROMPT = (
     "You name photo clusters with a short evocative title (2-4 words, no "
     "quotes, no period, lowercase). Use what the memories actually depict — "
-    "places, people, objects, themes. Avoid generic words like 'photos', "
-    "'images', 'cluster', 'collection', 'memories'. If the items are mixed "
-    "or you can't tell, return UNKNOWN."
+    "places, people, objects, themes. If you see filenames like IMG_ or "
+    "screenshot dates, use those as hints. If there is no descriptive content "
+    "at all, make your best guess from filenames. Never return UNKNOWN — "
+    "always return 2-4 lowercase words even if vague (e.g. 'random photos')."
+    "Avoid generic words like 'photos', 'images', 'cluster', 'collection', 'memories'."
 )
 
 _USER_TEMPLATE = (
@@ -50,8 +52,13 @@ def _build_lines(payloads: list[dict], filenames: list[str | None]) -> str:
         parts: list[str] = []
         if payload.get("type"):
             parts.append(f"[{payload['type']}]")
+        # extract meaningful words from filename (strip UUIDs, timestamps, extensions)
         if filename:
-            parts.append(filename)
+            import re
+            clean = re.sub(r"[0-9a-f]{8,}|[0-9]{10,}|\.[a-z0-9]+$", "", filename, flags=re.I)
+            clean = clean.strip("_- .")
+            if clean:
+                parts.append(clean)
         text = (payload.get("transcript") or "").strip()
         if text:
             parts.append(f'transcript: "{text[:120]}"')
@@ -107,6 +114,18 @@ def _call_groq(api_key: str, prompt: str) -> str | None:
         return None
 
 
+def _call_local_llm(prompt: str) -> str | None:
+    """Try LM Studio / Ollama as a fallback when Groq is unavailable."""
+    from llm_client import ask_llm
+    return ask_llm(
+        system=_SYSTEM_PROMPT,
+        prompt=prompt,
+        temperature=0.2,
+        max_tokens=15,  # cluster label = 2-4 words = ~10 tokens
+        timeout=12.0,   # 3B model on GPU should finish 15 tokens in <5s
+    )
+
+
 def label_cluster(point_ids: list[str], payloads: list[dict],
                    filenames: list[str | None] | None = None) -> str | None:
     """Return a Groq-generated cluster label, or None to signal fall-back to
@@ -120,7 +139,11 @@ def label_cluster(point_ids: list[str], payloads: list[dict],
     if filenames is None:
         filenames = [None] * len(payloads)
     prompt = _USER_TEMPLATE.format(lines=_build_lines(payloads, filenames))
-    raw = _call_groq(api_key, prompt)
+    # Try local LLM first (LM Studio / Ollama) — faster, free, offline.
+    # Fall back to Groq only if local LLM is unreachable.
+    raw = _call_local_llm(prompt)
+    if raw is None and api_key:
+        raw = _call_groq(api_key, prompt)
     if raw is None:
         return None
     cleaned = _normalise(raw)
@@ -137,8 +160,7 @@ def label_clusters_parallel(items: list[tuple[list[str], list[dict], list[str | 
     (None where the call failed / API unavailable, so caller can fall back)."""
     if not items:
         return []
-    if not os.environ.get("GROQ_API_KEY"):
-        return [None] * len(items)
+    # Local LLM (LM Studio) doesn't need an API key — proceed even without GROQ_API_KEY
     out: list[str | None] = [None] * len(items)
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {

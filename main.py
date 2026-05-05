@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import os
 import time
@@ -23,15 +24,26 @@ from PIL import Image
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
 
+# Thumbnail cache: key = SHA1(path|mtime|size), value = base64 data URL.
+# Caps at 500 entries; LRU-ish eviction on insert.
+_thumbnail_cache: dict[str, str] = {}
+_thumbnail_cache_max = 500
+
 from indexer import (
     AUDIO_EXTS,
     COLLECTION,
     PHOTO_EXTS,
     SCREENSHOT_PREFIX,
     VIDEO_EXTS,
+    VOICE_COLLECTION,
+    embed_text,
     ensure_collection,
+    ensure_voice_collection,
     index_folder,
     index_path,
+    request_cancel as indexer_request_cancel,
+    reset_cancel as indexer_reset_cancel,
+    transcribe_audio,
 )
 from search import recommend_more_like, search
 from viz import VALID_SPACES, invalidate_cache as viz_invalidate, projection as viz_projection
@@ -52,11 +64,13 @@ from faces_lib import (
     list_clusters,
     memories_for_cluster,
     memories_for_label,
+    remove_faces_for_cluster,
     remove_faces_for_memory,
     scan_all_photos,
     set_cluster_label,
 )
 
+BASE_DIR = Path(__file__).resolve().parent  # root of this repo, survives cd-elsewhere launches
 DATA_DIR = Path(os.environ.get("ECHOS_DATA", "./qdrant_storage")).resolve()
 MEMORIES_DIR = Path(os.environ.get("ECHOS_MEMORIES", "./memories")).resolve()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -65,6 +79,23 @@ MEMORIES_DIR.mkdir(parents=True, exist_ok=True)
 client = QdrantClient(path=str(DATA_DIR))
 ensure_collection(client)
 ensure_faces_collection(client)
+ensure_voice_collection(client)
+
+# Qdrant Edge write buffer — fast ingest layer. On boot, replay any
+# crash-leftover points into the main collection.
+try:
+    from edge_buffer import EdgeBuffer
+    _edge = EdgeBuffer(DATA_DIR)
+    _stale_edge = _edge.count()
+    if _stale_edge:
+        replayed = _edge.drain_into(client, COLLECTION)
+        if replayed:
+            import logging
+            logging.getLogger("uvicorn").info(
+                f"edge_buffer: replayed {replayed} stale points into main collection"
+            )
+except Exception:
+    _edge = None  # Edge is optional — app works without it
 
 app = FastAPI(title="Échos", version="0.1.0")
 app.add_middleware(
@@ -90,8 +121,34 @@ async def _bump_threadpool():
 if Path("static").exists():
     app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# Serve React frontend (built output from echoes-front/dist).
+REACT_DIST = BASE_DIR / "echoes-front" / "dist"
+if REACT_DIST.exists():
+    app.mount("/assets", StaticFiles(directory=REACT_DIST / "assets"), name="react-assets")
 
-# --- Museum SSE: notify connected clients when a /upload (or similar) leaves
+
+@app.get("/")
+def root():
+    idx = REACT_DIST / "index.html"
+    if idx.exists():
+        return FileResponse(idx)
+    # fallback: old vanilla index.html
+    old = BASE_DIR / "static" / "index.html"
+    if old.exists():
+        return FileResponse(old)
+    return {"name": "Échos", "endpoints": ["/search", "/index-folder", "/stats"]}
+
+
+# SPA fallback: serve React index.html for client-side routes
+# (/search, /people). API routes are matched first, so this doesn't
+# shadow /search POST, /faces/*, etc.
+@app.get("/search")
+@app.get("/people")
+def spa_fallback():
+    idx = REACT_DIST / "index.html"
+    if idx.exists():
+        return FileResponse(idx)
+    return {"ok": False, "detail": "React frontend not built"}
 # the cached layout stale, so the UI can offer a "refresh" button instead of
 # auto-jumping the player around mid-walk.
 _museum_subscribers: set[asyncio.Queue] = set()
@@ -158,10 +215,14 @@ def index_folder_endpoint(body: IndexBody):
         client.delete_collection(COLLECTION)
         ensure_collection(client)
     t0 = time.time()
+    indexer_reset_cancel()
     counts = index_folder(client, folder)
     viz_invalidate()
     _notify_museum_dirty("index-folder")
-    return {"folder": str(folder), "counts": counts, "took_seconds": round(time.time() - t0, 2)}
+    resp: dict = {"folder": str(folder), "counts": counts, "took_seconds": round(time.time() - t0, 2)}
+    if counts.get("cancelled"):
+        resp["message"] = "indexing was cancelled — partial results saved"
+    return resp
 
 
 @app.post("/upload")
@@ -242,6 +303,19 @@ def thumbnail(point_id: str):
     if not path or not Path(path).exists():
         raise HTTPException(404, "media missing on disk")
 
+    # Cache key = SHA1 of source path, mtime, and file size so we never serve
+    # a stale thumbnail after the source file changes or is replaced.
+    try:
+        st = Path(path).stat()
+        cache_key = hashlib.sha1(
+            f"{path}|{st.st_mtime_ns}|{st.st_size}".encode()
+        ).hexdigest()
+    except OSError:
+        cache_key = None
+
+    if cache_key and cache_key in _thumbnail_cache:
+        return {"point_id": point_id, "data_url": _thumbnail_cache[cache_key]}
+
     img: Image.Image | None = None
     if ptype in ("photo", "screenshot"):
         img = Image.open(path).convert("RGB")
@@ -260,7 +334,15 @@ def thumbnail(point_id: str):
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=80)
     b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-    return {"point_id": point_id, "data_url": f"data:image/jpeg;base64,{b64}"}
+    data_url = f"data:image/jpeg;base64,{b64}"
+
+    if cache_key:
+        if len(_thumbnail_cache) >= _thumbnail_cache_max:
+            # LRU-ish: evict first key (dict insertion order preserves in 3.7+).
+            _thumbnail_cache.pop(next(iter(_thumbnail_cache)))
+        _thumbnail_cache[cache_key] = data_url
+
+    return {"point_id": point_id, "data_url": data_url}
 
 
 @app.get("/media/{point_id}")
@@ -362,12 +444,27 @@ def library(limit: int = 60, before: float | None = None):
     return {"items": items, "next_before": next_before, "total": len(all_points) if before is None else None}
 
 
+@app.post("/index-cancel")
+def index_cancel():
+    """Request cancellation of a running /index-folder operation."""
+    indexer_request_cancel()
+    return {"ok": True, "message": "cancel requested — index will stop after current item"}
+
+
+@app.delete("/thumbnail-cache")
+def thumbnail_cache_clear():
+    n = len(_thumbnail_cache)
+    _thumbnail_cache.clear()
+    return {"ok": True, "cleared": n}
+
+
 @app.delete("/reset")
 def reset():
     client.delete_collection(COLLECTION)
     ensure_collection(client)
     viz_invalidate()
     museum_invalidate()
+    _thumbnail_cache.clear()
     return {"ok": True}
 
 
@@ -428,7 +525,7 @@ async def museum_events():
 
 @app.get("/museum")
 def museum_page():
-    page = Path("static/museum.html")
+    page = BASE_DIR / "static" / "museum.html"
     if not page.exists():
         raise HTTPException(404, "museum.html missing")
     return FileResponse(page)
@@ -483,6 +580,200 @@ def forget(body: ForgetBody):
     return {"ok": True, "forgot": body.point_id, "file_deleted": body.delete_file}
 
 
+@app.post("/transcribe")
+async def transcribe_endpoint(audio: UploadFile = File(...)):
+    """Accept a browser-recorded audio blob, transcribe with local Whisper (tiny).
+    Fully offline — no network call. The model is already loaded by indexer.
+
+    Browser MediaRecorder typically sends audio/webm with opus codec. Whisper
+    uses ffmpeg/torchaudio under the hood — both handle webm fine. On Windows
+    the tempfile must be closed before Whisper opens it for reading."""
+    import tempfile
+    # Write to a temp file, close it, then transcribe — NamedTemporaryFile
+    # keeps the handle open by default on Windows, which blocks Whisper.
+    suffix = Path(audio.filename or "recording").suffix or ".webm"
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    try:
+        while True:
+            chunk = await audio.read(1024 * 1024)
+            if not chunk:
+                break
+            tmp.write(chunk)
+        tmp_path = tmp.name
+    finally:
+        tmp.close()  # close before Whisper reads on Windows
+
+    try:
+        text = transcribe_audio(tmp_path)
+    finally:
+        try:
+            Path(tmp_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+    return {"text": text, "model": "whisper-tiny", "offline": True}
+
+
+class AskBody(BaseModel):
+    question: str
+    top_k: int = 5
+
+
+@app.post("/ask")
+def ask_endpoint(body: AskBody):
+    """Voice/conversational assistant endpoint.
+
+    1. Embeds question, searches memories + past voice context.
+    2. Calls local LLM (LM Studio) to synthesize a natural answer from results.
+    3. Stores Q&A pair in voice_memories for future conversation context.
+
+    If the LLM is unreachable, falls back to a structured list of top results."""
+    from search import search
+    from llm_client import ask_llm
+
+    q = body.question.strip()
+    if not q:
+        raise HTTPException(400, "empty question")
+
+    # 1) Search main memories
+    main = search(client, q, body.top_k)
+    results = main["results"]
+
+    # 2) Search past voice memories for conversation context
+    past_context: list[dict] = []
+    try:
+        q_vec = embed_text(q)
+        voice_hits = client.query_points(
+            collection_name=VOICE_COLLECTION,
+            using="text",
+            query=q_vec,
+            limit=3,
+            with_payload=True,
+        )
+        for pt in voice_hits.points:
+            pl = pt.payload or {}
+            past_context.append({
+                "question": pl.get("question"),
+                "answer": pl.get("answer"),
+                "timestamp": pl.get("timestamp"),
+            })
+    except Exception:
+        past_context = []
+
+    # 3) Synthesize answer with local LLM
+    answer: str | None = None
+    # Build a compact summary of search results for the LLM prompt
+    result_lines: list[str] = []
+    for r in results[:5]:
+        parts: list[str] = [f"[{r.get('type', 'unknown')}]"]
+        ts = r.get("timestamp")
+        if ts:
+            import datetime as _dt
+            parts.append(_dt.datetime.fromtimestamp(ts).strftime("%B %d"))
+        t = (r.get("transcript") or "").strip()
+        if t:
+            parts.append(f'transcript: "{t[:150]}"')
+        o = (r.get("ocr_text") or "").strip()
+        if o:
+            parts.append(f'ocr: "{o[:150]}"')
+        parts.append(f'score: {r.get("score", 0):.2f}')
+        result_lines.append(" · ".join(parts))
+
+    context_block = ""
+    if past_context:
+        context_block = "Past conversation:\n" + "\n".join(
+            f'Q: "{c["question"]}" → A: {c["answer"] or "(no answer yet)"}'
+            for c in past_context
+        ) + "\n\n"
+
+    prompt = (
+        f'{context_block}'
+        f'User asked: "{q}"\n\n'
+        f'Search results (top {len(result_lines)}):\n'
+        + "\n".join(f"  {i + 1}. {line}" for i, line in enumerate(result_lines))
+    )
+
+    llm_used = False
+    try:
+        raw = ask_llm(
+            "You are Échos, a memory assistant. Answer in 1-3 natural English sentences. "
+            "Mention dates, people, places from the results. If results are empty, say so "
+            "kindly. Never mention scores or technical details. Never use emojis. "
+            "Sound like a friend helping recall moments.",
+            prompt,
+            max_tokens=50,
+            temperature=0.1,
+        )
+        if raw and raw.strip():
+            answer = raw.strip()
+            llm_used = True
+    except Exception:
+        answer = None
+
+    # Fallback: structured list if LLM unavailable
+    if not answer:
+        if not results:
+            answer = "No memories matched that question."
+        else:
+            parts = []
+            for i, r in enumerate(results[:3]):
+                t = r.get("type", "unknown")
+                ts = r.get("timestamp")
+                ago = ""
+                if ts:
+                    d = (_time.time() - ts) / 86400
+                    ago = "today" if d < 1 else "yesterday" if d < 2 else f"{int(d)} days ago"
+                parts.append(f"#{i + 1}: {t} from {ago}")
+            answer = f"Found {len(results)} memories. " + ". ".join(parts) + "."
+
+    # 4) Store Q&A in voice-memories
+    import uuid as _uuid
+    import time as _time
+    from qdrant_client.models import PointStruct
+    qa_id = str(_uuid.uuid4())
+    qa_vec = embed_text(q)
+    client.upsert(
+        collection_name=VOICE_COLLECTION,
+        points=[PointStruct(
+            id=qa_id,
+            vector={"text": qa_vec},
+            payload={
+                "question": q,
+                "answer": answer,
+                "result_ids": [r["id"] for r in results],
+                "timestamp": _time.time(),
+            },
+        )],
+    )
+
+    return {
+        "question": q,
+        "qa_id": qa_id,
+        "answer": answer,
+        "results": results,
+        "matched_labels": main["matched_labels"],
+        "past_context": past_context,
+        "llm_used": llm_used,
+    }
+
+
+@app.post("/ask/{qa_id}/answer")
+def ask_store_answer(qa_id: str, body: dict):
+    """Store the LLM-synthesized answer for a previous /ask call.
+    Body: {"answer": "Last June 14th you were at..."}"""
+    answer = (body.get("answer") or "").strip()
+    if not answer:
+        raise HTTPException(400, "empty answer")
+    try:
+        client.set_payload(
+            collection_name=VOICE_COLLECTION,
+            payload={"answer": answer},
+            points=[qa_id],
+        )
+    except Exception:
+        raise HTTPException(404, f"qa_id {qa_id} not found")
+    return {"ok": True, "qa_id": qa_id, "answer": answer}
+
+
 @app.post("/faces/scan")
 def faces_scan_endpoint():
     """Re-detect faces across every photo/screenshot. Wipes old face clusters first."""
@@ -492,6 +783,13 @@ def faces_scan_endpoint():
 @app.get("/faces/clusters")
 def faces_clusters_endpoint():
     return {"clusters": list_clusters(client)}
+
+
+@app.delete("/faces/cluster/{cluster_id}")
+def faces_delete_cluster_endpoint(cluster_id: str):
+    """Delete all faces in a cluster. Removes the person from the people view."""
+    removed = remove_faces_for_cluster(client, cluster_id)
+    return {"ok": True, "cluster_id": cluster_id, "faces_removed": removed}
 
 
 @app.post("/faces/consolidate")

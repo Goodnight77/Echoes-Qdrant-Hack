@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import threading
 import uuid
 from pathlib import Path
 from typing import Iterable
@@ -19,6 +20,7 @@ except ImportError:
     pass
 
 COLLECTION = "memories"
+VOICE_COLLECTION = "voice_memories"
 
 VISUAL_DIM = 512
 TEXT_DIM = 384
@@ -31,12 +33,69 @@ AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".ogg", ".flac"}
 OCR_MIN_CHARS = 20
 OCR_MIN_WORDS = 4
 
+# SSIM near-duplicate gate: when indexing a photo, check its top-K visual
+# neighbours. If any has SSIM >= SSIM_DUP_THRESHOLD, skip as duplicate.
+# 0.75 catches nearly-identical crops & re-saves; raise to 0.85 for stricter.
+SSIM_DUP_THRESHOLD = 0.75
+SSIM_DUP_NEIGHBOURS = 5
+
+# Cancellation event: set via API to gracefully abort a running index_folder.
+_index_cancel = threading.Event()
+
 
 def _ocr_meaningful(text: str) -> bool:
     if not text or len(text) < OCR_MIN_CHARS:
         return False
     alpha_words = [w for w in text.split() if sum(c.isalpha() for c in w) >= 3]
     return len(alpha_words) >= OCR_MIN_WORDS
+
+
+def _ssim(img_a: Image.Image, img_b: Image.Image) -> float:
+    """Structural similarity between two images, resized to 128×128 grayscale.
+    Returns 0.0–1.0; higher = visually more similar."""
+    from skimage.metrics import structural_similarity
+    size = (128, 128)
+    ga = np.array(img_a.convert("L").resize(size), dtype=np.float32)
+    gb = np.array(img_b.convert("L").resize(size), dtype=np.float32)
+    return float(structural_similarity(ga, gb, data_range=255))
+
+
+def _check_duplicate(client: QdrantClient, img: Image.Image, skip_id: str | None = None) -> str | None:
+    """Return the point_id of a near-duplicate, or None if image is novel.
+
+    Strategy: embed the new image → query visual space → SSIM the top-K
+    candidates. Two-stage avoids O(N) SSIM across the whole collection.
+    """
+    from qdrant_client.models import Filter, HasIdCondition
+    try:
+        vec = embed_image(img)
+    except Exception:
+        return None
+    query_filter = Filter(must_not=[HasIdCondition(has_id=[skip_id])]) if skip_id else None
+    try:
+        hits = client.query_points(
+            collection_name=COLLECTION,
+            using="visual",
+            query=vec,
+            limit=SSIM_DUP_NEIGHBOURS,
+            with_payload=True,
+            query_filter=query_filter,
+        )
+    except Exception:
+        return None
+    for h in hits.points:
+        if float(h.score) < 0.30:  # visual floor — don't bother loading below this
+            continue
+        path = (h.payload or {}).get("path")
+        if not path or not Path(path).exists():
+            continue
+        try:
+            other = Image.open(path).convert("RGB")
+        except Exception:
+            continue
+        if _ssim(img, other) >= SSIM_DUP_THRESHOLD:
+            return str(h.id)
+    return None
 
 
 class _Models:
@@ -151,6 +210,19 @@ def ensure_collection(client: QdrantClient) -> None:
     )
 
 
+def ensure_voice_collection(client: QdrantClient) -> None:
+    """Create the voice-memories collection if it doesn't exist.
+    Stores past Q&A pairs so the assistant has conversation memory."""
+    if client.collection_exists(VOICE_COLLECTION):
+        return
+    client.create_collection(
+        collection_name=VOICE_COLLECTION,
+        vectors_config={
+            "text": VectorParams(size=TEXT_DIM, distance=Distance.COSINE),
+        },
+    )
+
+
 _NS = uuid.UUID("4e9f5e2c-1a4b-4f5d-9e0b-1a5d3c7e9f01")
 
 
@@ -171,9 +243,11 @@ def _photo_timestamp(path: str | Path) -> float:
        2. EXIF DateTimeDigitized — when the file was first written to a digital
           form (close enough for scanned negatives, screenshotted images)
        3. EXIF DateTime — last camera-side edit
-       4. file mtime — last filesystem write
+       4. date pattern in original filename (e.g. IMG_20231227_..., screenshot 2024-08-06)
+       5. file mtime — last filesystem write (often the upload/copy time, least reliable)
     Phone-to-PC copies often reset mtime to the copy moment, which makes the
-    photo's actual capture date disappear. EXIF survives the copy."""
+    photo's actual capture date disappear. EXIF survives the copy; so do
+    date stamps embedded in the file name (camera roll naming, screenshots)."""
     import datetime as _dt
     try:
         from PIL import Image
@@ -198,6 +272,31 @@ def _photo_timestamp(path: str | Path) -> float:
                     pass
     except Exception:
         pass
+
+    # 4) Date pattern in original filename (strip upload timestamp prefix first).
+    # Patterns: YYYYMMDD, YYYY-MM-DD, YYYY_MM_DD
+    fname = Path(path).name
+    # Strip leading 13-digit millisecond timestamp + underscore added during upload
+    import re as _re
+    stripped = _re.sub(r"^\d{13}_", "", fname)
+    # Look for YYYYMMDD (8 digits starting with 20xx or 19xx)
+    m = _re.search(r"(?:19|20)\d{2}(?:0[1-9]|1[012])(?:0[1-9]|[12]\d|3[01])", stripped)
+    if m:
+        try:
+            d = _dt.datetime.strptime(m.group(), "%Y%m%d")
+            # noon UTC — nominal time for date-only matches
+            return d.replace(hour=12, minute=0, second=0).timestamp()
+        except ValueError:
+            pass
+    # Look for YYYY-MM-DD or YYYY_MM_DD
+    m = _re.search(r"(?:19|20)\d{2}[-_](?:0[1-9]|1[012])[-_](?:0[1-9]|[12]\d|3[01])", stripped)
+    if m:
+        try:
+            d = _dt.datetime.strptime(m.group().replace("_", "-"), "%Y-%m-%d")
+            return d.replace(hour=12, minute=0, second=0).timestamp()
+        except ValueError:
+            pass
+
     return _mtime(path)
 
 
@@ -209,8 +308,13 @@ def _try_index_faces(client: QdrantClient, memory_id: str, path: str | Path) -> 
         print(f"[faces] skipped {path}: {type(e).__name__}: {e}")
 
 
-def index_photo(client: QdrantClient, path: str | Path) -> str:
-    visual = embed_image(path)
+def index_photo(client: QdrantClient, path: str | Path) -> str | None:
+    img = Image.open(path).convert("RGB")
+    dup_of = _check_duplicate(client, img)
+    if dup_of:
+        print(f"[dedup] skipping {Path(path).name}: duplicate of {dup_of}")
+        return None
+    visual = embed_image(img)
     ocr = ocr_image(path)
     vectors: dict[str, list[float]] = {"visual": visual}
     if _ocr_meaningful(ocr):
@@ -233,8 +337,13 @@ def index_photo(client: QdrantClient, path: str | Path) -> str:
     return pid
 
 
-def index_screenshot(client: QdrantClient, path: str | Path) -> str:
-    visual = embed_image(path)
+def index_screenshot(client: QdrantClient, path: str | Path) -> str | None:
+    img = Image.open(path).convert("RGB")
+    dup_of = _check_duplicate(client, img)
+    if dup_of:
+        print(f"[dedup] skipping {Path(path).name}: duplicate of {dup_of}")
+        return None
+    visual = embed_image(img)
     ocr = ocr_image(path)
     vectors: dict[str, list[float]] = {"visual": visual}
     if _ocr_meaningful(ocr):
@@ -318,6 +427,7 @@ def index_video(client: QdrantClient, path: str | Path) -> str:
 
 
 def index_path(client: QdrantClient, path: str | Path) -> str | None:
+    """Index a single file. Returns point_id, or None if unsupported / duplicate."""
     p = Path(path)
     ext = p.suffix.lower()
     if ext in VIDEO_EXTS:
@@ -331,10 +441,25 @@ def index_path(client: QdrantClient, path: str | Path) -> str | None:
     return None
 
 
+def request_cancel() -> None:
+    """Signal any running index_folder to stop after the current item."""
+    _index_cancel.set()
+
+
+def reset_cancel() -> None:
+    """Clear the cancellation flag before starting a new index."""
+    _index_cancel.clear()
+
+
 def index_folder(client: QdrantClient, folder: str | Path) -> dict[str, int]:
     folder = Path(folder)
-    counts = {"photo": 0, "screenshot": 0, "voice_memo": 0, "video": 0, "skipped": 0}
+    counts = {"photo": 0, "screenshot": 0, "voice_memo": 0, "video": 0,
+              "skipped": 0, "duplicate": 0, "cancelled": 0}
+    reset_cancel()
     for p in sorted(folder.rglob("*")):
+        if _index_cancel.is_set():
+            counts["cancelled"] = 1
+            break
         if not p.is_file():
             continue
         ext = p.suffix.lower()
@@ -344,9 +469,17 @@ def index_folder(client: QdrantClient, folder: str | Path) -> dict[str, int]:
             index_voice_memo(client, p); counts["voice_memo"] += 1
         elif ext in PHOTO_EXTS:
             if p.name.lower().startswith(SCREENSHOT_PREFIX):
-                index_screenshot(client, p); counts["screenshot"] += 1
+                pid = index_screenshot(client, p)
+                if pid is None:
+                    counts["duplicate"] += 1
+                else:
+                    counts["screenshot"] += 1
             else:
-                index_photo(client, p); counts["photo"] += 1
+                pid = index_photo(client, p)
+                if pid is None:
+                    counts["duplicate"] += 1
+                else:
+                    counts["photo"] += 1
         else:
             counts["skipped"] += 1
     return counts

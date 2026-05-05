@@ -1,4 +1,14 @@
-"""Multi-vector search with Reciprocal Rank Fusion across visual / audio_transcript / ocr_text."""
+"""Multi-vector search with cosine-weighted fusion across visual / audio_transcript / ocr_text.
+
+Fusion strategy (cosine-primary, RRF-tiebreak):
+- Each hit's score = weighted average of raw cosine similarities across the spaces
+  it matched. Items carry only the spaces they were indexed with — a photo without
+  a transcript isn't penalised for missing audio_transcript.
+- Multi-modal items get a tiny RRF-style bonus (+0.02 per extra space) to break
+  ties in favour of richer matches.
+- Per-space cosine floors guard against noise; per-space weight lets voice memos
+  compete fairly with photos (voice memos only exist in one space).
+"""
 from __future__ import annotations
 
 import re
@@ -10,18 +20,20 @@ from qdrant_client.models import Filter, HasIdCondition
 from faces_lib import list_known_labels, memories_for_label
 from indexer import COLLECTION, embed_text, embed_text_clip
 
-RRF_K = 60
-PER_SPACE_LIMIT = 20
+PER_SPACE_LIMIT = 30
 TOP_K = 12
 
 # Per-space cosine floor: hits below this threshold are dropped before fusion.
 # all-MiniLM-L6-v2 short text similarity floors around 0.3 for unrelated pairs;
-# CLIP text↔image floor around 0.18.
-SCORE_FLOOR = {"visual": 0.20, "audio_transcript": 0.30, "ocr_text": 0.30}
+# CLIP text↔image floor is lower — ~0.15 for edge-of-relevance.
+SCORE_FLOOR = {"visual": 0.17, "audio_transcript": 0.25, "ocr_text": 0.25}
 
-# Weighted RRF: voice memos live only in audio_transcript and need a small boost
+# Per-space weight: voice memos live only in audio_transcript and need a boost
 # to compete in fusion against items present in both visual + ocr_text.
-SPACE_WEIGHT = {"visual": 1.0, "audio_transcript": 1.6, "ocr_text": 1.0}
+SPACE_WEIGHT = {"visual": 1.0, "audio_transcript": 1.8, "ocr_text": 1.0}
+
+# Multi-modal bonus per extra matched space (tiny — only breaks ties).
+MM_BONUS = 0.02
 
 _TOKEN_RE = re.compile(r"[a-zA-Z][a-zA-Z\-']{1,}")
 
@@ -102,22 +114,36 @@ def search(client: QdrantClient, query: str, top_k: int = TOP_K) -> dict:
         "ocr_text": ocr_hits,
     }
 
+    # Cosine-primary fusion: weighted average of raw cosine scores.
+    # An item is scored only on the spaces it was indexed with — a photo
+    # without transcript isn't penalised for missing audio_transcript.
     fused: dict[str, dict] = {}
     for space, hits in hits_by_space.items():
         floor = SCORE_FLOOR.get(space, 0.0)
-        kept = [h for h in hits if float(h.score) >= floor]
-        for rank, h in enumerate(kept):
+        space_w = SPACE_WEIGHT.get(space, 1.0)
+        for h in hits:
+            cosine = float(h.score)
+            if cosine < floor:
+                continue
             pid = str(h.id)
             entry = fused.setdefault(pid, {
                 "id": pid,
-                "score": 0.0,
+                "cosine_sum": 0.0,
+                "cosine_weight": 0.0,
                 "matched_via": [],
                 "payload": h.payload,
                 "raw_scores": {},
             })
-            entry["score"] += SPACE_WEIGHT.get(space, 1.0) / (RRF_K + rank + 1)
+            entry["cosine_sum"] += cosine * space_w
+            entry["cosine_weight"] += space_w
             entry["matched_via"].append(space)
-            entry["raw_scores"][space] = float(h.score)
+            entry["raw_scores"][space] = cosine
+
+    for entry in fused.values():
+        n_spaces = len(entry["matched_via"])
+        base = entry["cosine_sum"] / entry["cosine_weight"] if entry["cosine_weight"] > 0 else 0.0
+        # Tiny multi-modal bonus breaks ties toward richer matches.
+        entry["score"] = base + MM_BONUS * (n_spaces - 1) if n_spaces > 1 else base
 
     ranked = sorted(fused.values(), key=lambda r: r["score"], reverse=True)[:top_k]
 
@@ -159,10 +185,19 @@ def recommend_more_like(client: QdrantClient, point_id: str, top_k: int = 12) ->
         if space not in vectors:
             continue
         hits = _query_space(client, space, vectors[space], limit=PER_SPACE_LIMIT)
-        for rank, h in enumerate(hits):
+        for h in hits:
             if str(h.id) == str(point_id):
                 continue
+            cosine = float(h.score)
             pid = str(h.id)
-            entry = fused.setdefault(pid, {"id": pid, "score": 0.0, "payload": h.payload})
-            entry["score"] += 1.0 / (RRF_K + rank + 1)
+            entry = fused.setdefault(pid, {
+                "id": pid,
+                "cosine_sum": 0.0,
+                "cosine_weight": 0.0,
+                "payload": h.payload,
+            })
+            entry["cosine_sum"] += cosine
+            entry["cosine_weight"] += 1.0
+    for entry in fused.values():
+        entry["score"] = entry["cosine_sum"] / entry["cosine_weight"] if entry["cosine_weight"] > 0 else 0.0
     return sorted(fused.values(), key=lambda r: r["score"], reverse=True)[:top_k]

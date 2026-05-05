@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #0b0b10;
+  --color-surface: #111118;
+  --color-border: #1e1e28;
+  --color-accent: #A78BFA;
+  --color-accent-dim: #7c5ce7;
+  --color-text: #e8e8ee;
+  --color-text-dim: #9e9eaa;
+  --color-text-muted: #656570;
+  --color-danger: #ef4444;
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --radius-card: 0.75rem;
+}
+
+@layer base {
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body, #root { height: 100%; }
+  body {
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  ::selection { background: rgba(167, 139, 250, 0.25); }
+}
+
+@utility shimmer {
+  background: linear-gradient(90deg, #1a1a22 0%, #25252e 50%, #1a1a22 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@utility glass {
+  background: rgba(8, 8, 14, 0.78);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(167, 139, 250, 0.18);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+}
+
+@utility focus-ring {
+  &:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.5);
+  }
+}
