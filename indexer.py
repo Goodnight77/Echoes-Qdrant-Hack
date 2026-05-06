@@ -12,12 +12,18 @@ from PIL import Image
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass
+
 COLLECTION = "memories"
 
 VISUAL_DIM = 512
 TEXT_DIM = 384
 
-PHOTO_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+PHOTO_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".heic", ".heif"}
 SCREENSHOT_PREFIX = "screenshot_"
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".avi"}
 AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".ogg", ".flac"}
