@@ -33,3 +33,7 @@ test_queries.py
 # Local env
 .env
 .env.*
+
+# Working notes — only README.md is allowed in git
+*.md
+!README.md

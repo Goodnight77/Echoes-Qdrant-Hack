@@ -26,6 +26,14 @@
   .chip-active { background: #A78BFA; color: #0b0b10; }
   mark { background: rgba(167,139,250,0.35); color: inherit; padding: 0 2px; border-radius: 3px; }
 </style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
 </head>
 <body class="min-h-screen">
 <div class="max-w-6xl mx-auto px-6 py-8">
@@ -50,6 +58,11 @@
   </header>
 
   <div id="uploadStatus" class="hidden mb-4 text-xs text-neutral-400 px-3 py-2 rounded-lg bg-neutral-900/60 border border-neutral-800"></div>
+
+  <div id="hero" class="relative mb-6 rounded-2xl overflow-hidden border border-neutral-800 bg-gradient-to-b from-[#0d0d18] to-[#0b0b10]" style="height: 320px;">
+    <canvas id="heroCanvas" class="absolute inset-0 w-full h-full block"></canvas>
+    <div class="absolute bottom-3 right-4 text-[10px] uppercase tracking-[0.18em] text-neutral-600 pointer-events-none">echos · edge</div>
+  </div>
 
   <div class="relative mb-6">
     <input id="q" type="text" autocomplete="off" autofocus
@@ -119,13 +132,57 @@ function loadStats() {
 }
 loadStats();
 
+const uploadInput = document.getElementById('uploadInput');
+const uploadStatus = document.getElementById('uploadStatus');
+uploadInput.addEventListener('change', async () => {
+  const files = Array.from(uploadInput.files || []);
+  if (!files.length) return;
+  uploadStatus.classList.remove('hidden');
+  uploadStatus.textContent = `uploading ${files.length} file(s) · embedding on PC…`;
+  const fd = new FormData();
+  for (const f of files) fd.append('files', f, f.name);
+  try {
+    const res = await fetch('/upload', { method: 'POST', body: fd });
+    const data = await res.json();
+    const ok = data.uploaded.filter(x => x.point_id).length;
+    const skipped = data.uploaded.filter(x => x.skipped || x.error).length;
+    uploadStatus.textContent = `indexed ${ok} new · ${skipped} skipped`;
+    loadStats();
+    if (q.value.trim()) doSearch();
+    setTimeout(() => uploadStatus.classList.add('hidden'), 5000);
+  } catch (e) {
+    uploadStatus.textContent = `upload failed: ${e}`;
+  } finally {
+    uploadInput.value = '';
+  }
+});
+
 let timer = null;
 q.addEventListener('input', () => {
   clearTimeout(timer);
-  if (!q.value.trim()) { document.getElementById('results').innerHTML = ''; document.getElementById('empty').classList.add('hidden'); return; }
+  if (!q.value.trim()) {
+    document.getElementById('results').innerHTML = '';
+    document.getElementById('empty').classList.add('hidden');
+    showHero();
+    return;
+  }
+  hideHero();
   showShimmer();
   timer = setTimeout(doSearch, 200);
 });
+
+function hideHero() {
+  const h = document.getElementById('hero');
+  if (!h || h.classList.contains('hidden')) return;
+  h.classList.add('hidden');
+  if (window.__heroDispose) window.__heroDispose();
+}
+function showHero() {
+  const h = document.getElementById('hero');
+  if (!h || !h.classList.contains('hidden')) return;
+  h.classList.remove('hidden');
+  if (window.__heroInit) window.__heroInit();
+}
 
 function showShimmer() {
   const r = document.getElementById('results');
@@ -299,6 +356,152 @@ document.getElementById('modal').addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') document.getElementById('modal').classList.add('hidden');
 });
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const ACCENT = 0xA78BFA;
+const MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
+const canvas = document.getElementById('heroCanvas');
+let renderer, scene, camera, mixer, model, stars, clock, raf, onResize, onMove;
+const mouse = { x: 0, y: 0 };
+
+function buildStars() {
+  const count = 320;
+  const positions = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    positions[i * 3] = (Math.random() - 0.5) * 22;
+    positions[i * 3 + 1] = (Math.random() - 0.5) * 12;
+    positions[i * 3 + 2] = (Math.random() - 0.5) * 12 - 4;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const mat = new THREE.PointsMaterial({
+    color: 0xffffff, size: 0.028, sizeAttenuation: true,
+    transparent: true, opacity: 0.7
+  });
+  return new THREE.Points(geo, mat);
+}
+
+function init() {
+  if (renderer) return;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(w, h, false);
+  renderer.setClearColor(0x000000, 0);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+  scene = new THREE.Scene();
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+  camera = new THREE.PerspectiveCamera(35, w / h, 0.1, 100);
+  camera.position.set(0, 1.0, 4.2);
+  camera.lookAt(0, 0.9, 0);
+
+  const key = new THREE.DirectionalLight(0xffffff, 1.6);
+  key.position.set(3, 5, 4);
+  scene.add(key);
+  const rim = new THREE.PointLight(ACCENT, 18, 14, 1.6);
+  rim.position.set(-2.5, 1.4, 1.5);
+  scene.add(rim);
+  const fill = new THREE.HemisphereLight(0x6a7afc, 0x0a0a14, 0.35);
+  scene.add(fill);
+
+  stars = buildStars();
+  scene.add(stars);
+
+  clock = new THREE.Clock();
+
+  new GLTFLoader().load(
+    MODEL_URL,
+    (gltf) => {
+      model = gltf.scene;
+
+      const box = new THREE.Box3().setFromObject(model);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      const targetH = 2.2;
+      const scale = targetH / size.y;
+      model.scale.setScalar(scale);
+      model.position.x = -center.x * scale;
+      model.position.y = -box.min.y * scale - targetH * 0.55;
+      model.position.z = -center.z * scale;
+      model.rotation.y = -0.25;
+
+      scene.add(model);
+
+      if (gltf.animations && gltf.animations.length) {
+        mixer = new THREE.AnimationMixer(model);
+        mixer.clipAction(gltf.animations[0]).play();
+      }
+    },
+    undefined,
+    (err) => { console.warn('astronaut load failed', err); }
+  );
+
+  onResize = () => {
+    const W = canvas.clientWidth, H = canvas.clientHeight;
+    renderer.setSize(W, H, false);
+    camera.aspect = W / H;
+    camera.updateProjectionMatrix();
+  };
+  window.addEventListener('resize', onResize);
+
+  onMove = (e) => {
+    const r = canvas.getBoundingClientRect();
+    mouse.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    mouse.y = -(((e.clientY - r.top) / r.height) * 2 - 1);
+  };
+  window.addEventListener('mousemove', onMove);
+
+  const start = performance.now();
+  const tick = () => {
+    const dt = clock.getDelta();
+    const t = (performance.now() - start) / 1000;
+    if (mixer) mixer.update(dt);
+    if (model) {
+      model.position.y = -1.05 + Math.sin(t * 0.8) * 0.12;
+      model.rotation.y = -0.25 + Math.sin(t * 0.3) * 0.35 + mouse.x * 0.25;
+      model.rotation.x = mouse.y * 0.08 + Math.sin(t * 0.45) * 0.04;
+    }
+    stars.rotation.y = t * 0.015;
+    stars.rotation.x = t * 0.008;
+    renderer.render(scene, camera);
+    raf = requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+function dispose() {
+  if (!renderer) return;
+  cancelAnimationFrame(raf);
+  window.removeEventListener('resize', onResize);
+  window.removeEventListener('mousemove', onMove);
+  if (mixer) mixer.stopAllAction();
+  scene.traverse((o) => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) {
+      if (Array.isArray(o.material)) o.material.forEach((m) => m.dispose());
+      else o.material.dispose();
+    }
+  });
+  renderer.dispose();
+  renderer = null;
+  mixer = null;
+  model = null;
+}
+
+window.__heroInit = init;
+window.__heroDispose = dispose;
+init();
 </script>
 </body>
 </html>
