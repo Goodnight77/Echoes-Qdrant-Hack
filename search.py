@@ -14,7 +14,13 @@ RRF_K = 60
 PER_SPACE_LIMIT = 20
 TOP_K = 12
 
+# Per-space cosine floor: hits below this threshold are dropped before fusion.
+# all-MiniLM-L6-v2 short text similarity floors around 0.3 for unrelated pairs;
+# CLIP text↔image floor around 0.18.
 SCORE_FLOOR = {"visual": 0.20, "audio_transcript": 0.30, "ocr_text": 0.30}
+
+# Weighted RRF: voice memos live only in audio_transcript and need a small boost
+# to compete in fusion against items present in both visual + ocr_text.
 SPACE_WEIGHT = {"visual": 1.0, "audio_transcript": 1.6, "ocr_text": 1.0}
 
 _TOKEN_RE = re.compile(r"[a-zA-Z][a-zA-Z\-']{1,}")
