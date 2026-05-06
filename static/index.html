@@ -25,6 +25,15 @@
   .focus-ring:focus { outline: none; box-shadow: 0 0 0 3px rgba(167,139,250,0.5); }
   .chip-active { background: #A78BFA; color: #0b0b10; }
   mark { background: rgba(167,139,250,0.35); color: inherit; padding: 0 2px; border-radius: 3px; }
+  .tile { position: relative; aspect-ratio: 1 / 1; overflow: hidden; border-radius: 8px; background: #1a1a22; cursor: pointer; }
+  .tile img, .tile video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .tile .badge { position: absolute; bottom: 4px; left: 4px; font-size: 10px; padding: 1px 6px; border-radius: 999px; background: rgba(0,0,0,0.55); backdrop-filter: blur(6px); color: #e8e8ee; pointer-events: none; }
+  .tile .delete { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 999px; background: rgba(0,0,0,0.55); color: #e8e8ee; font-size: 14px; line-height: 22px; text-align: center; opacity: 0; transition: opacity 140ms ease; cursor: pointer; backdrop-filter: blur(6px); }
+  .tile:hover .delete { opacity: 1; }
+  .tile .delete:hover { background: #ef4444; }
+  .space-pill { transition: all 140ms ease; color: #d4d4d8; }
+  .space-pill:hover { border-color: #A78BFA; }
+  .space-active { background: #A78BFA !important; color: #0b0b10 !important; border-color: #A78BFA !important; }
 </style>
 <script type="importmap">
 {
@@ -57,11 +66,27 @@
     </div>
   </header>
 
-  <div id="uploadStatus" class="hidden mb-4 text-xs text-neutral-400 px-3 py-2 rounded-lg bg-neutral-900/60 border border-neutral-800"></div>
+  <div id="uploadStatus" class="hidden mb-4 px-4 py-3 rounded-lg bg-neutral-900/70 border border-neutral-800">
+    <div class="flex items-center justify-between text-xs text-neutral-300 mb-2">
+      <span id="uploadLabel">indexing…</span>
+      <span id="uploadCount" class="text-neutral-500">0 / 0</span>
+    </div>
+    <div class="h-1.5 rounded-full bg-neutral-800 overflow-hidden">
+      <div id="uploadBar" class="h-full bg-accent transition-all duration-200" style="width: 0%;"></div>
+    </div>
+    <div id="uploadCurrent" class="mt-2 text-[11px] text-neutral-500 truncate"></div>
+  </div>
 
-  <div id="hero" class="relative mb-6 rounded-2xl overflow-hidden border border-neutral-800 bg-gradient-to-b from-[#0d0d18] to-[#0b0b10]" style="height: 320px;">
-    <canvas id="heroCanvas" class="absolute inset-0 w-full h-full block"></canvas>
-    <div class="absolute bottom-3 right-4 text-[10px] uppercase tracking-[0.18em] text-neutral-600 pointer-events-none">echos · edge</div>
+  <div id="hero" class="relative mb-6 rounded-2xl overflow-hidden border border-neutral-800 bg-gradient-to-b from-[#0d0d18] to-[#06060a]" style="height: 480px;">
+    <canvas id="heroCanvas" class="absolute inset-0 w-full h-full block cursor-grab"></canvas>
+    <div class="absolute top-3 left-3 flex gap-1 text-[11px]">
+      <button data-space="visual" class="space-pill space-active px-2.5 py-1 rounded-full border border-neutral-700 bg-black/40 backdrop-blur">visual</button>
+      <button data-space="audio_transcript" class="space-pill px-2.5 py-1 rounded-full border border-neutral-700 bg-black/40 backdrop-blur">transcript</button>
+      <button data-space="ocr_text" class="space-pill px-2.5 py-1 rounded-full border border-neutral-700 bg-black/40 backdrop-blur">ocr</button>
+    </div>
+    <div class="absolute top-3 right-3 text-[10px] uppercase tracking-[0.18em] text-neutral-500 pointer-events-none">drag · scroll · click</div>
+    <div id="heroLabel" class="hidden absolute pointer-events-none px-2 py-1 rounded-md bg-black/80 border border-neutral-700 text-[11px] text-neutral-200 backdrop-blur" style="transform: translate(-50%, -130%);"></div>
+    <div class="absolute bottom-3 right-4 text-[10px] uppercase tracking-[0.18em] text-neutral-600 pointer-events-none" id="heroFoot">echos · vector galaxy</div>
   </div>
 
   <div class="relative mb-6">
@@ -70,15 +95,61 @@
       placeholder="dog at the beach">
   </div>
 
-  <div id="chips" class="flex flex-wrap gap-2 mb-8 text-xs">
+  <div id="chips" class="flex flex-wrap items-center gap-2 mb-8 text-xs">
     <button data-filter="all" class="chip chip-active px-3 py-1.5 rounded-full border border-neutral-700">all</button>
     <button data-filter="photo" class="chip px-3 py-1.5 rounded-full border border-neutral-700">photos</button>
     <button data-filter="video" class="chip px-3 py-1.5 rounded-full border border-neutral-700">videos</button>
     <button data-filter="voice_memo" class="chip px-3 py-1.5 rounded-full border border-neutral-700">voice</button>
     <button data-filter="screenshot" class="chip px-3 py-1.5 rounded-full border border-neutral-700">screenshots</button>
+    <span class="flex-1"></span>
+    <button id="peopleToggle" class="px-3 py-1.5 rounded-full border border-neutral-700 hover:border-accent flex items-center gap-1.5">
+      <span>👤</span><span id="peopleToggleLabel">people</span>
+    </button>
+    <button id="libraryToggle" class="px-3 py-1.5 rounded-full border border-neutral-700 hover:border-accent flex items-center gap-1.5">
+      <span>▦</span><span id="libraryToggleLabel">browse all</span>
+    </button>
+  </div>
+
+  <div id="faceFilter" class="hidden mb-4 text-xs text-accent flex items-center gap-2">
+    <span>👤</span><span id="faceFilterLabel"></span>
   </div>
 
   <div id="results" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"></div>
+
+  <div id="library" class="hidden">
+    <div id="libraryGrid" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-1.5"></div>
+    <div class="text-center mt-6">
+      <button id="loadMore" class="hidden px-4 py-2 rounded-full text-xs border border-neutral-700 hover:border-accent">load older</button>
+      <div id="libraryEmpty" class="hidden py-24 text-neutral-500 text-sm">no memories yet — drop files via "+ add memory".</div>
+    </div>
+  </div>
+
+  <div id="people" class="hidden">
+    <div class="flex items-center justify-between mb-4">
+      <div class="text-xs text-neutral-400" id="peopleCount">loading clusters…</div>
+      <div class="flex gap-2">
+        <button id="consolidateLabels" class="text-xs text-accent px-3 py-1.5 rounded-full bg-neutral-900/60 border border-neutral-800 hover:border-accent">consolidate labels</button>
+        <button id="scanFaces" class="text-xs text-accent px-3 py-1.5 rounded-full bg-neutral-900/60 border border-neutral-800 hover:border-accent">rescan faces</button>
+      </div>
+    </div>
+    <div id="peopleGrid" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4"></div>
+    <div id="peopleEmpty" class="hidden py-16 text-center text-neutral-500 text-sm">no faces found yet. drop some photos with people, then click "rescan faces" if needed.</div>
+  </div>
+
+  <div id="personPanel" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="max-w-3xl w-full bg-neutral-950 border border-neutral-800 rounded-2xl p-6 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center gap-4 mb-5">
+        <img id="personAvatar" class="w-20 h-20 rounded-full object-cover bg-neutral-800 border border-neutral-700" alt="">
+        <div class="flex-1">
+          <input id="personLabel" type="text" placeholder="name this person…" class="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-sm focus-ring placeholder-neutral-600">
+          <div id="personMeta" class="mt-1 text-[11px] text-neutral-500"></div>
+        </div>
+        <button id="personSave" class="text-xs px-4 py-2 rounded-full border border-accent text-accent hover:bg-accent hover:text-black">save</button>
+        <button id="personClose" class="text-sm text-neutral-400 hover:text-white">close</button>
+      </div>
+      <div id="personMemories" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-1.5"></div>
+    </div>
+  </div>
 
   <div id="empty" class="hidden text-center py-24 text-neutral-500">
     <div class="text-3xl mb-3">·</div>
@@ -115,6 +186,11 @@ setInterval(() => {
 
 let filter = 'all';
 let lastResults = [];
+let mode = 'search';
+let libraryItems = [];
+let libraryNextBefore = null;
+let peopleClusters = [];
+let activeCluster = null;
 
 document.querySelectorAll('.chip').forEach(b => {
   b.addEventListener('click', () => {
@@ -132,37 +208,387 @@ function loadStats() {
 }
 loadStats();
 
+const libraryToggle = document.getElementById('libraryToggle');
+const libraryToggleLabel = document.getElementById('libraryToggleLabel');
+const libraryEl = document.getElementById('library');
+const libraryGrid = document.getElementById('libraryGrid');
+const libraryEmpty = document.getElementById('libraryEmpty');
+const loadMoreBtn = document.getElementById('loadMore');
+
+libraryToggle.addEventListener('click', () => {
+  if (mode === 'library') exitLibrary(); else enterLibrary();
+});
+loadMoreBtn.addEventListener('click', () => fetchLibrary(libraryNextBefore));
+
+async function enterLibrary() {
+  if (mode === 'people') exitPeople();
+  mode = 'library';
+  libraryToggleLabel.textContent = 'close';
+  libraryToggle.classList.add('chip-active');
+  hideHero();
+  document.getElementById('results').innerHTML = '';
+  document.getElementById('empty').classList.add('hidden');
+  libraryEl.classList.remove('hidden');
+  libraryItems = [];
+  libraryGrid.innerHTML = '';
+  await fetchLibrary(null);
+}
+function exitLibrary() {
+  mode = 'search';
+  libraryToggleLabel.textContent = 'browse all';
+  libraryToggle.classList.remove('chip-active');
+  libraryEl.classList.add('hidden');
+  loadMoreBtn.classList.add('hidden');
+  if (!q.value.trim()) showHero();
+}
+
+async function fetchLibrary(before) {
+  const url = before ? `/library?limit=60&before=${before}` : '/library?limit=60';
+  const res = await fetch(url);
+  const data = await res.json();
+  libraryItems = libraryItems.concat(data.items || []);
+  libraryNextBefore = data.next_before || null;
+  renderLibrary();
+  loadMoreBtn.classList.toggle('hidden', !libraryNextBefore);
+  libraryEmpty.classList.toggle('hidden', libraryItems.length > 0);
+}
+
+function renderLibrary() {
+  libraryGrid.innerHTML = '';
+  for (const it of libraryItems) {
+    const tile = document.createElement('div');
+    tile.className = 'tile group';
+
+    if (it.type === 'voice_memo') {
+      tile.innerHTML = '<div class="w-full h-full flex items-center justify-center text-3xl text-neutral-500">🎙️</div>';
+    } else {
+      const im = document.createElement('img');
+      im.alt = '';
+      fetch(`/thumbnail/${it.id}`).then(r => r.json()).then(t => { im.src = t.data_url; });
+      tile.appendChild(im);
+      if (it.type === 'video') {
+        const ov = document.createElement('div');
+        ov.className = 'absolute inset-0 flex items-center justify-center text-3xl text-white/90 pointer-events-none';
+        ov.textContent = '▶';
+        tile.appendChild(ov);
+      }
+    }
+
+    const badge = document.createElement('div');
+    badge.className = 'badge';
+    badge.textContent = badgeShort(it.type);
+    tile.appendChild(badge);
+
+    const del = document.createElement('div');
+    del.className = 'delete';
+    del.textContent = '×';
+    del.title = 'forget this memory';
+    del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      forgetMemory(it.id, it.type);
+    });
+    tile.appendChild(del);
+
+    tile.addEventListener('click', () => openModal(it, ''));
+    libraryGrid.appendChild(tile);
+  }
+}
+
+function badgeShort(t) {
+  return ({ photo: '📷', video: '🎥', voice_memo: '🎙️', screenshot: '🖼️' })[t] || t;
+}
+
+const peopleToggle = document.getElementById('peopleToggle');
+const peopleToggleLabel = document.getElementById('peopleToggleLabel');
+const peopleEl = document.getElementById('people');
+const peopleGrid = document.getElementById('peopleGrid');
+const peopleCount = document.getElementById('peopleCount');
+const peopleEmpty = document.getElementById('peopleEmpty');
+const scanFacesBtn = document.getElementById('scanFaces');
+const personPanel = document.getElementById('personPanel');
+const personAvatar = document.getElementById('personAvatar');
+const personLabel = document.getElementById('personLabel');
+const personMeta = document.getElementById('personMeta');
+const personSave = document.getElementById('personSave');
+const personClose = document.getElementById('personClose');
+const personMemories = document.getElementById('personMemories');
+
+peopleToggle.addEventListener('click', () => {
+  if (mode === 'people') exitPeople(); else enterPeople();
+});
+scanFacesBtn.addEventListener('click', runFaceScan);
+document.getElementById('consolidateLabels').addEventListener('click', runConsolidate);
+personClose.addEventListener('click', () => personPanel.classList.add('hidden'));
+personPanel.addEventListener('click', (e) => { if (e.target === personPanel) personPanel.classList.add('hidden'); });
+personSave.addEventListener('click', saveLabel);
+
+async function enterPeople() {
+  if (mode === 'library') exitLibrary();
+  mode = 'people';
+  peopleToggleLabel.textContent = 'close';
+  peopleToggle.classList.add('chip-active');
+  hideHero();
+  document.getElementById('results').innerHTML = '';
+  document.getElementById('empty').classList.add('hidden');
+  peopleEl.classList.remove('hidden');
+  await loadClusters();
+}
+function exitPeople() {
+  mode = 'search';
+  peopleToggleLabel.textContent = 'people';
+  peopleToggle.classList.remove('chip-active');
+  peopleEl.classList.add('hidden');
+  if (!q.value.trim()) showHero();
+}
+
+async function loadClusters() {
+  peopleCount.textContent = 'loading…';
+  peopleGrid.innerHTML = '';
+  try {
+    const res = await fetch('/faces/clusters');
+    const data = await res.json();
+    peopleClusters = data.clusters || [];
+    renderClusters();
+  } catch (e) {
+    peopleCount.textContent = 'failed to load clusters';
+  }
+}
+
+function renderClusters() {
+  peopleGrid.innerHTML = '';
+  peopleEmpty.classList.toggle('hidden', peopleClusters.length > 0);
+  peopleCount.textContent = `${peopleClusters.length} cluster${peopleClusters.length === 1 ? '' : 's'} · ${peopleClusters.reduce((a, c) => a + c.count, 0)} faces detected`;
+  for (const cl of peopleClusters) {
+    const card = document.createElement('div');
+    card.className = 'flex flex-col items-center cursor-pointer group';
+
+    const avatar = document.createElement('div');
+    avatar.className = 'w-24 h-24 rounded-full overflow-hidden border-2 border-neutral-800 group-hover:border-accent transition-colors bg-neutral-900';
+    const im = document.createElement('img');
+    im.src = `/faces/avatar/${cl.sample_face_id}`;
+    im.className = 'w-full h-full object-cover';
+    im.alt = '';
+    im.onerror = () => { avatar.innerHTML = '<div class="w-full h-full flex items-center justify-center text-2xl text-neutral-500">👤</div>'; };
+    avatar.appendChild(im);
+    card.appendChild(avatar);
+
+    const name = document.createElement('div');
+    name.className = 'mt-2 text-sm font-medium text-center ' + (cl.label ? 'text-neutral-200' : 'text-neutral-500 italic');
+    name.textContent = cl.label || 'unnamed';
+    card.appendChild(name);
+
+    const meta = document.createElement('div');
+    meta.className = 'text-[11px] text-neutral-500';
+    meta.textContent = `${cl.memory_count} memor${cl.memory_count === 1 ? 'y' : 'ies'}`;
+    card.appendChild(meta);
+
+    card.addEventListener('click', () => openPerson(cl));
+    peopleGrid.appendChild(card);
+  }
+}
+
+async function openPerson(cluster) {
+  activeCluster = cluster;
+  personAvatar.src = `/faces/avatar/${cluster.sample_face_id}`;
+  personLabel.value = cluster.label || '';
+  personMeta.textContent = `${cluster.count} face${cluster.count === 1 ? '' : 's'} across ${cluster.memory_count} memor${cluster.memory_count === 1 ? 'y' : 'ies'}`;
+  personMemories.innerHTML = '<div class="col-span-5 text-center text-neutral-500 text-sm py-6">loading…</div>';
+  personPanel.classList.remove('hidden');
+  personLabel.focus();
+
+  try {
+    const res = await fetch(`/faces/by-cluster/${encodeURIComponent(cluster.cluster_id)}`);
+    const data = await res.json();
+    renderPersonMemories(data.items || []);
+  } catch (e) {
+    personMemories.innerHTML = '<div class="col-span-5 text-center text-red-400 text-sm py-6">failed to load</div>';
+  }
+}
+
+function renderPersonMemories(items) {
+  personMemories.innerHTML = '';
+  if (!items.length) {
+    personMemories.innerHTML = '<div class="col-span-5 text-center text-neutral-500 text-sm py-6">no memories</div>';
+    return;
+  }
+  for (const it of items) {
+    const tile = document.createElement('div');
+    tile.className = 'tile';
+    if (it.type === 'voice_memo') {
+      tile.innerHTML = '<div class="w-full h-full flex items-center justify-center text-2xl text-neutral-500">🎙️</div>';
+    } else {
+      const im = document.createElement('img');
+      im.alt = '';
+      fetch(`/thumbnail/${it.id}`).then(r => r.json()).then(t => { im.src = t.data_url; });
+      tile.appendChild(im);
+    }
+    const badge = document.createElement('div');
+    badge.className = 'badge';
+    badge.textContent = badgeShort(it.type);
+    tile.appendChild(badge);
+    tile.addEventListener('click', () => openModal(it, ''));
+    personMemories.appendChild(tile);
+  }
+}
+
+async function saveLabel() {
+  if (!activeCluster) return;
+  const label = personLabel.value.trim();
+  if (!label) { alert('enter a name'); return; }
+  personSave.textContent = 'saving…';
+  personSave.disabled = true;
+  try {
+    const res = await fetch('/faces/label', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ cluster_id: activeCluster.cluster_id, label })
+    });
+    if (!res.ok) throw new Error('label failed');
+    const data = await res.json();
+    personPanel.classList.add('hidden');
+    await loadClusters();
+    if (data.merged_faces) {
+      console.log(`auto-merged ${data.merged_faces} faces into ${label}`);
+    }
+  } catch (e) {
+    alert(`failed: ${e.message}`);
+  } finally {
+    personSave.textContent = 'save';
+    personSave.disabled = false;
+  }
+}
+
+async function runConsolidate() {
+  const btn = document.getElementById('consolidateLabels');
+  btn.textContent = 'merging…';
+  btn.disabled = true;
+  try {
+    const res = await fetch('/faces/consolidate', { method: 'POST' });
+    const data = await res.json();
+    await loadClusters();
+    alert(`consolidated · ${data.total_faces_merged} faces merged across ${Object.keys(data.per_label || {}).length} duplicate labels`);
+  } catch (e) {
+    alert('consolidate failed');
+  } finally {
+    btn.textContent = 'consolidate labels';
+    btn.disabled = false;
+  }
+}
+
+async function runFaceScan() {
+  if (!confirm('rescan faces across all photos? this wipes existing clusters and rebuilds. labels you set will be lost.')) return;
+  scanFacesBtn.textContent = 'scanning…';
+  scanFacesBtn.disabled = true;
+  try {
+    const res = await fetch('/faces/scan', { method: 'POST' });
+    const data = await res.json();
+    alert(`done: ${data.faces_found} faces in ${data.photos_processed} photos`);
+    await loadClusters();
+  } catch (e) {
+    alert('scan failed');
+  } finally {
+    scanFacesBtn.textContent = 'rescan faces';
+    scanFacesBtn.disabled = false;
+  }
+}
+
+async function forgetMemory(id, type) {
+  const label = ({ photo: 'photo', video: 'video', voice_memo: 'voice memo', screenshot: 'screenshot' })[type] || 'memory';
+  if (!confirm(`forget this ${label}?\n\nremoves from index and deletes the file from disk. cannot be undone.`)) return;
+  const res = await fetch('/forget', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ point_id: id, delete_file: true })
+  });
+  if (!res.ok) { alert('forget failed'); return; }
+  libraryItems = libraryItems.filter(x => x.id !== id);
+  lastResults = lastResults.filter(x => x.id !== id);
+  renderLibrary();
+  if (mode === 'search' && q.value.trim()) render(lastResults, q.value);
+  loadStats();
+  if (window.__galaxyRefresh) window.__galaxyRefresh();
+  libraryEmpty.classList.toggle('hidden', libraryItems.length > 0 || mode !== 'library');
+}
+
 const uploadInput = document.getElementById('uploadInput');
 const uploadStatus = document.getElementById('uploadStatus');
+const uploadLabel = document.getElementById('uploadLabel');
+const uploadCount = document.getElementById('uploadCount');
+const uploadBar = document.getElementById('uploadBar');
+const uploadCurrent = document.getElementById('uploadCurrent');
+
+const UPLOAD_CONCURRENCY = 3;
+
 uploadInput.addEventListener('change', async () => {
   const files = Array.from(uploadInput.files || []);
   if (!files.length) return;
+  const total = files.length;
+  let done = 0, ok = 0, skipped = 0, failed = 0;
+  const queue = files.slice();
+  const inFlight = new Set();
+  const t0 = performance.now();
+
   uploadStatus.classList.remove('hidden');
-  uploadStatus.textContent = `uploading ${files.length} file(s) · embedding on PC…`;
-  const fd = new FormData();
-  for (const f of files) fd.append('files', f, f.name);
-  try {
-    const res = await fetch('/upload', { method: 'POST', body: fd });
-    const data = await res.json();
-    const ok = data.uploaded.filter(x => x.point_id).length;
-    const skipped = data.uploaded.filter(x => x.skipped || x.error).length;
-    uploadStatus.textContent = `indexed ${ok} new · ${skipped} skipped`;
-    loadStats();
-    if (q.value.trim()) doSearch();
-    setTimeout(() => uploadStatus.classList.add('hidden'), 5000);
-  } catch (e) {
-    uploadStatus.textContent = `upload failed: ${e}`;
-  } finally {
-    uploadInput.value = '';
+  uploadLabel.textContent = `indexing on PC · CLIP + Whisper + OCR · ${UPLOAD_CONCURRENCY}× parallel`;
+  uploadCount.textContent = `0 / ${total}`;
+  uploadBar.style.width = '0%';
+  uploadCurrent.textContent = '';
+
+  function paint() {
+    uploadCount.textContent = `${done} / ${total}`;
+    uploadBar.style.width = `${Math.round((done / total) * 100)}%`;
+    if (inFlight.size) {
+      const names = Array.from(inFlight).map(n => n.length > 28 ? n.slice(0, 25) + '…' : n);
+      uploadCurrent.textContent = `in flight (${inFlight.size}): ${names.join(' · ')}`;
+    } else {
+      uploadCurrent.textContent = '';
+    }
   }
+
+  async function worker() {
+    while (queue.length) {
+      const f = queue.shift();
+      if (!f) break;
+      inFlight.add(f.name);
+      paint();
+      try {
+        const fd = new FormData();
+        fd.append('files', f, f.name);
+        const res = await fetch('/upload', { method: 'POST', body: fd });
+        const data = await res.json();
+        const r = (data.uploaded || [])[0] || {};
+        if (r.point_id) ok++;
+        else if (r.skipped) skipped++;
+        else failed++;
+      } catch (e) {
+        failed++;
+      }
+      inFlight.delete(f.name);
+      done++;
+      paint();
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, total) }, worker));
+
+  const secs = ((performance.now() - t0) / 1000).toFixed(1);
+  uploadLabel.textContent = `done in ${secs}s · ${ok} indexed · ${skipped} skipped · ${failed} failed`;
+  uploadCurrent.textContent = '';
+  loadStats();
+  if (window.__galaxyRefresh) window.__galaxyRefresh();
+  if (q.value.trim()) doSearch();
+  if (mode === 'library') { libraryItems = []; libraryGrid.innerHTML = ''; await fetchLibrary(null); }
+  setTimeout(() => uploadStatus.classList.add('hidden'), 6000);
+  uploadInput.value = '';
 });
 
 let timer = null;
 q.addEventListener('input', () => {
   clearTimeout(timer);
+  if (mode === 'library') exitLibrary();
+  if (mode === 'people') exitPeople();
   if (!q.value.trim()) {
     document.getElementById('results').innerHTML = '';
     document.getElementById('empty').classList.add('hidden');
+    document.getElementById('faceFilter').classList.add('hidden');
     showHero();
     return;
   }
@@ -203,6 +629,15 @@ async function doSearch() {
   });
   const data = await res.json();
   lastResults = data.results || [];
+  const filterEl = document.getElementById('faceFilter');
+  const filterLabel = document.getElementById('faceFilterLabel');
+  const matched = data.matched_labels || [];
+  if (matched.length) {
+    filterLabel.textContent = `filtering by ${matched.join(' + ')} · ${lastResults.length} hits within their memories`;
+    filterEl.classList.remove('hidden');
+  } else {
+    filterEl.classList.add('hidden');
+  }
   render(lastResults, query);
 }
 
@@ -239,7 +674,18 @@ function render(results, query) {
   document.getElementById('empty').classList.toggle('hidden', filtered.length > 0);
   for (const r of filtered) {
     const card = document.createElement('div');
-    card.className = 'card cursor-pointer rounded-xl overflow-hidden bg-neutral-900/70 border border-neutral-800 p-3';
+    card.className = 'card relative cursor-pointer rounded-xl overflow-hidden bg-neutral-900/70 border border-neutral-800 p-3';
+
+    const delBtn = document.createElement('div');
+    delBtn.className = 'delete';
+    delBtn.textContent = '×';
+    delBtn.title = 'forget this memory';
+    delBtn.style.opacity = '1';
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      forgetMemory(r.id, r.type);
+    });
+    card.appendChild(delBtn);
 
     const thumb = document.createElement('div');
     thumb.className = 'aspect-video rounded-lg bg-neutral-800 mb-3 flex items-center justify-center text-neutral-500 text-xs overflow-hidden';
@@ -306,7 +752,8 @@ function openModal(r, query) {
   c.innerHTML = '';
   const head = document.createElement('div');
   head.className = 'mb-4 text-sm text-neutral-400';
-  head.textContent = `${badge(r.type)} · ${fmtAgo(r.timestamp)} · matched via ${r.matched_via.join(' + ')}`;
+  const tail = (r.matched_via && r.matched_via.length) ? ` · matched via ${r.matched_via.join(' + ')}` : '';
+  head.textContent = `${badge(r.type)} · ${fmtAgo(r.timestamp)}${tail}`;
   c.appendChild(head);
 
   if (r.type === 'photo' || r.type === 'screenshot') {
@@ -360,30 +807,46 @@ document.addEventListener('keydown', (e) => {
 
 <script type="module">
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-const ACCENT = 0xA78BFA;
-const MODEL_URL = 'https://modelviewer.dev/shared-assets/models/Astronaut.glb';
+const ACCENT = new THREE.Color(0xA78BFA);
+const TYPE_COLOR = {
+  photo:       new THREE.Color(0x60a5fa),
+  video:       new THREE.Color(0xf472b6),
+  voice_memo:  new THREE.Color(0xfbbf24),
+  screenshot:  new THREE.Color(0x34d399),
+  unknown:     new THREE.Color(0xa1a1aa),
+};
+
 const canvas = document.getElementById('heroCanvas');
-let renderer, scene, camera, mixer, model, stars, clock, raf, onResize, onMove;
-const mouse = { x: 0, y: 0 };
+const labelEl = document.getElementById('heroLabel');
+const footEl = document.getElementById('heroFoot');
 
-function buildStars() {
-  const count = 320;
+let renderer, scene, camera, controls, raf, onResize, onPointer, onClick;
+let starField, pointGroup, edgeLines, labelSprites = [];
+let currentSpace = 'visual';
+let currentItems = [];
+let pickables = [];
+let lastInteract = performance.now();
+
+const SPHERE_GEO = new THREE.SphereGeometry(0.16, 14, 12);
+
+function makeStars() {
+  const count = 700;
   const positions = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) {
-    positions[i * 3] = (Math.random() - 0.5) * 22;
-    positions[i * 3 + 1] = (Math.random() - 0.5) * 12;
-    positions[i * 3 + 2] = (Math.random() - 0.5) * 12 - 4;
+    const r = 30 + Math.random() * 30;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    positions[i * 3]     = r * Math.sin(phi) * Math.cos(theta);
+    positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+    positions[i * 3 + 2] = r * Math.cos(phi);
   }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  const mat = new THREE.PointsMaterial({
-    color: 0xffffff, size: 0.028, sizeAttenuation: true,
-    transparent: true, opacity: 0.7
-  });
-  return new THREE.Points(geo, mat);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  return new THREE.Points(g, new THREE.PointsMaterial({
+    color: 0xffffff, size: 0.06, transparent: true, opacity: 0.55, sizeAttenuation: true,
+  }));
 }
 
 function init() {
@@ -394,58 +857,37 @@ function init() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(w, h, false);
   renderer.setClearColor(0x000000, 0);
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   scene = new THREE.Scene();
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.fog = new THREE.FogExp2(0x06060a, 0.04);
 
-  camera = new THREE.PerspectiveCamera(35, w / h, 0.1, 100);
-  camera.position.set(0, 1.0, 4.2);
-  camera.lookAt(0, 0.9, 0);
+  camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 200);
+  camera.position.set(8, 6, 10);
 
-  const key = new THREE.DirectionalLight(0xffffff, 1.6);
-  key.position.set(3, 5, 4);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+  const key = new THREE.DirectionalLight(0xffffff, 0.8);
+  key.position.set(5, 8, 6);
   scene.add(key);
-  const rim = new THREE.PointLight(ACCENT, 18, 14, 1.6);
-  rim.position.set(-2.5, 1.4, 1.5);
+  const rim = new THREE.PointLight(0xA78BFA, 22, 30, 1.8);
+  rim.position.set(-6, 4, 0);
   scene.add(rim);
-  const fill = new THREE.HemisphereLight(0x6a7afc, 0x0a0a14, 0.35);
-  scene.add(fill);
 
-  stars = buildStars();
-  scene.add(stars);
+  starField = makeStars();
+  scene.add(starField);
 
-  clock = new THREE.Clock();
+  controls = new OrbitControls(camera, canvas);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.autoRotate = true;
+  controls.autoRotateSpeed = 0.6;
+  controls.minDistance = 3;
+  controls.maxDistance = 30;
+  controls.target.set(0, 0, 0);
 
-  new GLTFLoader().load(
-    MODEL_URL,
-    (gltf) => {
-      model = gltf.scene;
-
-      const box = new THREE.Box3().setFromObject(model);
-      const size = box.getSize(new THREE.Vector3());
-      const center = box.getCenter(new THREE.Vector3());
-      const targetH = 2.2;
-      const scale = targetH / size.y;
-      model.scale.setScalar(scale);
-      model.position.x = -center.x * scale;
-      model.position.y = -box.min.y * scale - targetH * 0.55;
-      model.position.z = -center.z * scale;
-      model.rotation.y = -0.25;
-
-      scene.add(model);
-
-      if (gltf.animations && gltf.animations.length) {
-        mixer = new THREE.AnimationMixer(model);
-        mixer.clipAction(gltf.animations[0]).play();
-      }
-    },
-    undefined,
-    (err) => { console.warn('astronaut load failed', err); }
-  );
+  const markInteract = () => { lastInteract = performance.now(); controls.autoRotate = false; };
+  canvas.addEventListener('pointerdown', markInteract);
+  canvas.addEventListener('wheel', markInteract, { passive: true });
 
   onResize = () => {
     const W = canvas.clientWidth, H = canvas.clientHeight;
@@ -455,52 +897,174 @@ function init() {
   };
   window.addEventListener('resize', onResize);
 
-  onMove = (e) => {
-    const r = canvas.getBoundingClientRect();
-    mouse.x = ((e.clientX - r.left) / r.width) * 2 - 1;
-    mouse.y = -(((e.clientY - r.top) / r.height) * 2 - 1);
-  };
-  window.addEventListener('mousemove', onMove);
+  const raycaster = new THREE.Raycaster();
+  const mouseN = new THREE.Vector2();
 
-  const start = performance.now();
-  const tick = () => {
-    const dt = clock.getDelta();
-    const t = (performance.now() - start) / 1000;
-    if (mixer) mixer.update(dt);
-    if (model) {
-      model.position.y = -1.05 + Math.sin(t * 0.8) * 0.12;
-      model.rotation.y = -0.25 + Math.sin(t * 0.3) * 0.35 + mouse.x * 0.25;
-      model.rotation.x = mouse.y * 0.08 + Math.sin(t * 0.45) * 0.04;
+  onPointer = (e) => {
+    const r = canvas.getBoundingClientRect();
+    mouseN.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    mouseN.y = -(((e.clientY - r.top) / r.height) * 2 - 1);
+    raycaster.setFromCamera(mouseN, camera);
+    if (!pickables.length) { labelEl.classList.add('hidden'); return; }
+    const hits = raycaster.intersectObjects(pickables, false);
+    if (hits.length) {
+      const m = hits[0].object;
+      const it = m.userData.item;
+      labelEl.textContent = labelText(it);
+      labelEl.style.left = (e.clientX - r.left) + 'px';
+      labelEl.style.top  = (e.clientY - r.top) + 'px';
+      labelEl.classList.remove('hidden');
+      canvas.style.cursor = 'pointer';
+    } else {
+      labelEl.classList.add('hidden');
+      canvas.style.cursor = 'grab';
     }
-    stars.rotation.y = t * 0.015;
-    stars.rotation.x = t * 0.008;
+  };
+  canvas.addEventListener('pointermove', onPointer);
+
+  onClick = (e) => {
+    const r = canvas.getBoundingClientRect();
+    mouseN.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    mouseN.y = -(((e.clientY - r.top) / r.height) * 2 - 1);
+    raycaster.setFromCamera(mouseN, camera);
+    const hits = raycaster.intersectObjects(pickables, false);
+    if (hits.length) {
+      const it = hits[0].object.userData.item;
+      window.openModal(it, '');
+    }
+  };
+  canvas.addEventListener('click', onClick);
+
+  document.querySelectorAll('.space-pill').forEach((b) => {
+    b.addEventListener('click', () => switchSpace(b.dataset.space));
+  });
+
+  loadProjection(currentSpace);
+
+  const tick = () => {
+    if (controls.autoRotate === false && performance.now() - lastInteract > 9000) {
+      controls.autoRotate = true;
+    }
+    controls.update();
     renderer.render(scene, camera);
     raf = requestAnimationFrame(tick);
   };
   tick();
 }
 
+function clearScene() {
+  pickables = [];
+  if (pointGroup) {
+    scene.remove(pointGroup);
+    pointGroup.traverse((o) => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => m.dispose());
+    });
+    pointGroup = null;
+  }
+  if (edgeLines) {
+    scene.remove(edgeLines);
+    edgeLines.geometry.dispose();
+    edgeLines.material.dispose();
+    edgeLines = null;
+  }
+}
+
+function labelText(it) {
+  const t = ({ photo: 'photo', video: 'video', voice_memo: 'voice', screenshot: 'screenshot' })[it.type] || it.type || '';
+  const snippet = (it.transcript || it.ocr_text || '').replace(/\s+/g, ' ').slice(0, 60);
+  return snippet ? `${t} · ${snippet}` : t;
+}
+
+async function loadProjection(space) {
+  footEl.textContent = 'echos · loading galaxy…';
+  try {
+    const res = await fetch(`/viz/projection?space=${space}&neighbors=3`);
+    const data = await res.json();
+    currentItems = data.items || [];
+    buildScene(currentItems);
+    footEl.textContent = `echos · ${currentItems.length} memories · space: ${space.replace('_', ' ')}`;
+  } catch (e) {
+    footEl.textContent = 'galaxy load failed';
+    console.warn(e);
+  }
+}
+
+function buildScene(items) {
+  clearScene();
+  if (!items.length) return;
+
+  pointGroup = new THREE.Group();
+  const idIndex = new Map();
+  items.forEach((it, i) => idIndex.set(it.id, i));
+
+  for (const it of items) {
+    const color = TYPE_COLOR[it.type] || TYPE_COLOR.unknown;
+    const mat = new THREE.MeshStandardMaterial({
+      color, emissive: color, emissiveIntensity: 0.55, roughness: 0.4, metalness: 0.2,
+    });
+    const m = new THREE.Mesh(SPHERE_GEO, mat);
+    m.position.set(it.x, it.y, it.z);
+    m.userData.item = { ...it, matched_via: [] };
+    pointGroup.add(m);
+    pickables.push(m);
+  }
+  scene.add(pointGroup);
+
+  const verts = [];
+  const seen = new Set();
+  for (const it of items) {
+    for (const nid of (it.neighbors || [])) {
+      const key = it.id < nid ? `${it.id}|${nid}` : `${nid}|${it.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const j = idIndex.get(nid);
+      if (j === undefined) continue;
+      const a = items[idIndex.get(it.id)];
+      const b = items[j];
+      verts.push(a.x, a.y, a.z, b.x, b.y, b.z);
+    }
+  }
+  if (verts.length) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    edgeLines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({
+      color: 0xA78BFA, transparent: true, opacity: 0.18,
+    }));
+    scene.add(edgeLines);
+  }
+}
+
+function switchSpace(space) {
+  if (space === currentSpace) return;
+  currentSpace = space;
+  document.querySelectorAll('.space-pill').forEach((b) => {
+    b.classList.toggle('space-active', b.dataset.space === space);
+  });
+  loadProjection(space);
+}
+
 function dispose() {
   if (!renderer) return;
   cancelAnimationFrame(raf);
   window.removeEventListener('resize', onResize);
-  window.removeEventListener('mousemove', onMove);
-  if (mixer) mixer.stopAllAction();
-  scene.traverse((o) => {
-    if (o.geometry) o.geometry.dispose();
-    if (o.material) {
-      if (Array.isArray(o.material)) o.material.forEach((m) => m.dispose());
-      else o.material.dispose();
-    }
-  });
+  canvas.removeEventListener('pointermove', onPointer);
+  canvas.removeEventListener('click', onClick);
+  clearScene();
+  if (starField) {
+    scene.remove(starField);
+    starField.geometry.dispose();
+    starField.material.dispose();
+    starField = null;
+  }
+  controls.dispose();
   renderer.dispose();
   renderer = null;
-  mixer = null;
-  model = null;
 }
 
 window.__heroInit = init;
 window.__heroDispose = dispose;
+window.__galaxyRefresh = () => { if (renderer) loadProjection(currentSpace); };
 init();
 </script>
 </body>
