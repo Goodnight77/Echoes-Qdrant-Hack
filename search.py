@@ -1,34 +1,63 @@
 """Multi-vector search with Reciprocal Rank Fusion across visual / audio_transcript / ocr_text."""
 from __future__ import annotations
 
+import re
+
 import numpy as np
 from qdrant_client import QdrantClient
+from qdrant_client.models import Filter, HasIdCondition
 
+from faces_lib import list_known_labels, memories_for_label
 from indexer import COLLECTION, embed_text, embed_text_clip
 
 RRF_K = 60
 PER_SPACE_LIMIT = 20
 TOP_K = 12
 
-# Per-space cosine floor: hits below this threshold are dropped before fusion.
-# all-MiniLM-L6-v2 short text similarity floors around 0.3 for unrelated pairs;
-# CLIP text↔image floor around 0.18.
 SCORE_FLOOR = {"visual": 0.20, "audio_transcript": 0.30, "ocr_text": 0.30}
-
-# Weighted RRF: voice memos live only in audio_transcript and need a small boost
-# to compete in fusion against items present in both visual + ocr_text.
 SPACE_WEIGHT = {"visual": 1.0, "audio_transcript": 1.6, "ocr_text": 1.0}
 
+_TOKEN_RE = re.compile(r"[a-zA-Z][a-zA-Z\-']{1,}")
 
-def _query_space(client: QdrantClient, using: str, vector: list[float], limit: int = PER_SPACE_LIMIT):
+
+def _query_space(
+    client: QdrantClient,
+    using: str,
+    vector: list[float],
+    limit: int = PER_SPACE_LIMIT,
+    query_filter: Filter | None = None,
+):
     res = client.query_points(
         collection_name=COLLECTION,
         using=using,
         query=vector,
         limit=limit,
         with_payload=True,
+        query_filter=query_filter,
     )
     return res.points
+
+
+def _detect_label_filter(client: QdrantClient, query: str) -> tuple[Filter | None, list[str]]:
+    """If query contains any known face-label token, return a filter restricting
+    search to memory_ids carrying any of those labels (union). Otherwise (None, [])."""
+    try:
+        known = list_known_labels(client)
+    except Exception:
+        return None, []
+    if not known:
+        return None, []
+    tokens = {t.lower() for t in _TOKEN_RE.findall(query)}
+    matched = sorted(known & tokens)
+    if not matched:
+        return None, []
+    mids: set[str] = set()
+    for label in matched:
+        for mid in memories_for_label(client, label):
+            mids.add(mid)
+    if not mids:
+        return None, matched
+    return Filter(must=[HasIdCondition(has_id=sorted(mids))]), matched
 
 
 def _best_video_moment(query_visual: list[float], keyframes: list[dict]) -> tuple[float, float] | None:
@@ -48,13 +77,18 @@ def _best_video_moment(query_visual: list[float], keyframes: list[dict]) -> tupl
     return best_ts, best_score
 
 
-def search(client: QdrantClient, query: str, top_k: int = TOP_K) -> list[dict]:
+def search(client: QdrantClient, query: str, top_k: int = TOP_K) -> dict:
     q_clip = embed_text_clip(query)
     q_text = embed_text(query)
 
-    visual_hits = _query_space(client, "visual", q_clip)
-    audio_hits = _query_space(client, "audio_transcript", q_text)
-    ocr_hits = _query_space(client, "ocr_text", q_text)
+    label_filter, matched_labels = _detect_label_filter(client, query)
+    # When face-filter narrows the universe, lift per-space limit so RRF still has
+    # enough candidates to fuse across modalities.
+    per_space_limit = PER_SPACE_LIMIT * 2 if label_filter else PER_SPACE_LIMIT
+
+    visual_hits = _query_space(client, "visual", q_clip, limit=per_space_limit, query_filter=label_filter)
+    audio_hits = _query_space(client, "audio_transcript", q_text, limit=per_space_limit, query_filter=label_filter)
+    ocr_hits = _query_space(client, "ocr_text", q_text, limit=per_space_limit, query_filter=label_filter)
 
     hits_by_space = {
         "visual": visual_hits,
@@ -100,7 +134,7 @@ def search(client: QdrantClient, query: str, top_k: int = TOP_K) -> list[dict]:
             if best:
                 item["best_moment_seconds"] = round(best[0], 2)
         results.append(item)
-    return results
+    return {"results": results, "matched_labels": matched_labels}
 
 
 def recommend_more_like(client: QdrantClient, point_id: str, top_k: int = 12) -> list[dict]:

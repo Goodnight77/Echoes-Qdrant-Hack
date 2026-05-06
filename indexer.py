@@ -165,6 +165,14 @@ def _mtime(path: str | Path) -> float:
     return os.path.getmtime(path)
 
 
+def _try_index_faces(client: QdrantClient, memory_id: str, path: str | Path) -> None:
+    try:
+        from faces_lib import index_faces_for_memory
+        index_faces_for_memory(client, memory_id, str(path))
+    except Exception as e:
+        print(f"[faces] skipped {path}: {type(e).__name__}: {e}")
+
+
 def index_photo(client: QdrantClient, path: str | Path) -> str:
     visual = embed_image(path)
     ocr = ocr_image(path)
@@ -185,6 +193,7 @@ def index_photo(client: QdrantClient, path: str | Path) -> str:
             },
         )],
     )
+    _try_index_faces(client, pid, path)
     return pid
 
 
@@ -208,6 +217,7 @@ def index_screenshot(client: QdrantClient, path: str | Path) -> str:
             },
         )],
     )
+    _try_index_faces(client, pid, path)
     return pid
 
 

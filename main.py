@@ -26,6 +26,19 @@ from indexer import (
     index_path,
 )
 from search import recommend_more_like, search
+from viz import VALID_SPACES, invalidate_cache as viz_invalidate, projection as viz_projection
+from faces_lib import (
+    consolidate_all_labels,
+    crop_face_jpeg,
+    ensure_faces_collection,
+    get_face,
+    list_clusters,
+    memories_for_cluster,
+    memories_for_label,
+    remove_faces_for_memory,
+    scan_all_photos,
+    set_cluster_label,
+)
 
 DATA_DIR = Path(os.environ.get("ECHOS_DATA", "./qdrant_storage")).resolve()
 MEMORIES_DIR = Path(os.environ.get("ECHOS_MEMORIES", "./memories")).resolve()
@@ -34,6 +47,7 @@ MEMORIES_DIR.mkdir(parents=True, exist_ok=True)
 
 client = QdrantClient(path=str(DATA_DIR))
 ensure_collection(client)
+ensure_faces_collection(client)
 
 app = FastAPI(title="Échos", version="0.1.0")
 app.add_middleware(
@@ -64,7 +78,8 @@ class SearchBody(BaseModel):
 def search_endpoint(body: SearchBody):
     if not body.query.strip():
         raise HTTPException(400, "empty query")
-    return {"query": body.query, "results": search(client, body.query, body.top_k or 12)}
+    out = search(client, body.query, body.top_k or 12)
+    return {"query": body.query, "results": out["results"], "matched_labels": out["matched_labels"]}
 
 
 class IndexBody(BaseModel):
@@ -82,6 +97,7 @@ def index_folder_endpoint(body: IndexBody):
         ensure_collection(client)
     t0 = time.time()
     counts = index_folder(client, folder)
+    viz_invalidate()
     return {"folder": str(folder), "counts": counts, "took_seconds": round(time.time() - t0, 2)}
 
 
@@ -116,6 +132,7 @@ async def upload(files: list[UploadFile] = File(...), kind: str | None = None):
             saved.append({"name": name, "error": f"{type(e).__name__}: {e}"})
             continue
         saved.append({"name": name, "saved_as": out.name, "point_id": pid})
+    viz_invalidate()
     return {"uploaded": saved}
 
 
@@ -245,11 +262,55 @@ def debug_vectors():
     return out
 
 
+@app.get("/library")
+def library(limit: int = 60, before: float | None = None):
+    """Newest-first list of all memories. Cursor: `before` = timestamp upper bound (exclusive)."""
+    all_points = []
+    offset = None
+    while True:
+        pts, offset = client.scroll(
+            collection_name=COLLECTION,
+            limit=512,
+            with_payload=True,
+            with_vectors=False,
+            offset=offset,
+        )
+        all_points.extend(pts)
+        if offset is None:
+            break
+    all_points.sort(key=lambda p: (p.payload or {}).get("timestamp") or 0.0, reverse=True)
+    if before is not None:
+        all_points = [p for p in all_points if ((p.payload or {}).get("timestamp") or 0.0) < before]
+    page = all_points[:limit]
+    items = []
+    for p in page:
+        pl = p.payload or {}
+        items.append({
+            "id": str(p.id),
+            "type": pl.get("type"),
+            "timestamp": pl.get("timestamp"),
+            "transcript": (pl.get("transcript") or "")[:140],
+            "ocr_text": (pl.get("ocr_text") or "")[:140],
+            "best_moment_seconds": pl.get("best_moment_seconds"),
+            "matched_via": [],
+        })
+    next_before = items[-1]["timestamp"] if len(page) == limit and len(all_points) > limit else None
+    return {"items": items, "next_before": next_before, "total": len(all_points) if before is None else None}
+
+
 @app.delete("/reset")
 def reset():
     client.delete_collection(COLLECTION)
     ensure_collection(client)
+    viz_invalidate()
     return {"ok": True}
+
+
+@app.get("/viz/projection")
+def viz_projection_endpoint(space: str = "visual", neighbors: int = 3):
+    if space not in VALID_SPACES:
+        raise HTTPException(400, f"space must be one of {VALID_SPACES}")
+    return viz_projection(client, space=space, neighbors=neighbors)
 
 
 @app.post("/resurface")
@@ -274,9 +335,10 @@ class ThreadBody(BaseModel):
 @app.post("/thread")
 def thread(body: ThreadBody):
     """Group results for a query in chronological order."""
-    res = search(client, body.query, top_k=20)
-    res.sort(key=lambda r: r.get("timestamp") or 0.0)
-    return {"query": body.query, "thread": res}
+    out = search(client, body.query, top_k=20)
+    items = out["results"]
+    items.sort(key=lambda r: r.get("timestamp") or 0.0)
+    return {"query": body.query, "thread": items, "matched_labels": out["matched_labels"]}
 
 
 class ForgetBody(BaseModel):
@@ -289,12 +351,102 @@ def forget(body: ForgetBody):
     p = _get_point(body.point_id)
     payload = p.payload or {}
     client.delete(collection_name=COLLECTION, points_selector=[body.point_id])
+    remove_faces_for_memory(client, body.point_id)
     if body.delete_file and payload.get("path"):
         try:
             Path(payload["path"]).unlink(missing_ok=True)
         except OSError:
             pass
+    viz_invalidate()
     return {"ok": True, "forgot": body.point_id, "file_deleted": body.delete_file}
+
+
+@app.post("/faces/scan")
+def faces_scan_endpoint():
+    """Re-detect faces across every photo/screenshot. Wipes old face clusters first."""
+    return scan_all_photos(client)
+
+
+@app.get("/faces/clusters")
+def faces_clusters_endpoint():
+    return {"clusters": list_clusters(client)}
+
+
+@app.post("/faces/consolidate")
+def faces_consolidate_endpoint():
+    """Merge any duplicate-label clusters across the whole collection."""
+    return consolidate_all_labels(client)
+
+
+class FaceLabelBody(BaseModel):
+    cluster_id: str
+    label: str
+
+
+@app.post("/faces/label")
+def faces_label_endpoint(body: FaceLabelBody):
+    label = body.label.strip()
+    if not label:
+        raise HTTPException(400, "label is empty")
+    result = set_cluster_label(client, body.cluster_id, label)
+    return {
+        "ok": True,
+        "cluster_id": body.cluster_id,
+        "canonical_cluster_id": result["canonical_cluster_id"],
+        "label": label,
+        "faces_updated": result["labeled"],
+        "merged_faces": result["merged"],
+    }
+
+
+@app.get("/faces/avatar/{face_id}")
+def faces_avatar_endpoint(face_id: str):
+    from fastapi.responses import Response
+    f = get_face(client, face_id)
+    if not f:
+        raise HTTPException(404, "face not found")
+    payload = f["payload"]
+    memory_id = payload.get("memory_id")
+    if not memory_id:
+        raise HTTPException(404, "no memory_id on face")
+    mem = client.retrieve(collection_name=COLLECTION, ids=[memory_id], with_payload=True)
+    if not mem:
+        raise HTTPException(404, "memory not found")
+    src_path = (mem[0].payload or {}).get("path")
+    if not src_path or not Path(src_path).exists():
+        raise HTTPException(404, "source image missing")
+    jpeg = crop_face_jpeg(src_path, payload["bbox"])
+    return Response(content=jpeg, media_type="image/jpeg")
+
+
+def _resolve_memories(memory_ids: list[str]) -> list[dict]:
+    if not memory_ids:
+        return []
+    pts = client.retrieve(collection_name=COLLECTION, ids=memory_ids, with_payload=True)
+    items = []
+    for p in pts:
+        pl = p.payload or {}
+        items.append({
+            "id": str(p.id),
+            "type": pl.get("type"),
+            "timestamp": pl.get("timestamp"),
+            "transcript": (pl.get("transcript") or "")[:140],
+            "ocr_text": (pl.get("ocr_text") or "")[:140],
+            "best_moment_seconds": pl.get("best_moment_seconds"),
+            "matched_via": [],
+        })
+    items.sort(key=lambda x: x["timestamp"] or 0.0, reverse=True)
+    return items
+
+
+@app.get("/faces/by-cluster/{cluster_id}")
+def faces_by_cluster_endpoint(cluster_id: str):
+    return {"cluster_id": cluster_id, "items": _resolve_memories(memories_for_cluster(client, cluster_id))}
+
+
+@app.get("/faces/by-label/{label}")
+def faces_by_label_endpoint(label: str):
+    return {"label": label, "items": _resolve_memories(memories_for_label(client, label))}
 
 
 if __name__ == "__main__":
