@@ -110,8 +110,7 @@
     cursor: pointer; z-index: 10;
     transition: opacity 200ms ease;
   }
-  /* Animated starfield background behind enter card — slow diagonal pan.
-     Inspired by 3D-art-gallery's panBg technique. */
+  /* Animated starfield background behind enter card — slow diagonal pan. */
   .enter-overlay::before {
     content: ''; position: absolute; inset: -40px;
     background:
@@ -164,8 +163,7 @@
     0%   { opacity: 0; transform: translateY(16px); }
     100% { opacity: 1; transform: translateY(0); }
   }
-  /* Shadow-pulse on title — subtle breathing glow.
-     Inspired by 3D-art-gallery's shadow-pulse. */
+  /* Shadow-pulse on title — subtle breathing glow. */
   .enter-card h1 {
     font-family: 'Playfair Display', serif; font-size: 32px; margin-bottom: 6px;
     text-shadow: 0 0 32px rgba(167,139,250,0.35);
@@ -403,6 +401,7 @@ const state = {
   mouseLocked: false,
   pendingNewTotal: null,
   refreshing: false,
+  particles: null,              // THREE.Points — ambient dust motes
 };
 
 // ─── camera shake ───
@@ -504,6 +503,64 @@ addEventListener('resize', () => {
   composer.setSize(innerWidth, innerHeight);
   labelRenderer.setSize(innerWidth, innerHeight);
 });
+
+// ---------- ambient dust particles ----------
+// 250 tiny glowing motes drifting slowly through the room — gives the museum
+// a "living" feel. Particles are spread across the room volume and bob on
+// independent sinusoidal paths so they feel like dust in light beams.
+const PARTICLE_COUNT = 250;
+function createParticles() {
+  if (state.particles) {
+    scene.remove(state.particles);
+    state.particles.geometry.dispose();
+    state.particles.material.dispose();
+  }
+  const positions = new Float32Array(PARTICLE_COUNT * 3);
+  const roomW = 28, roomH = 6, roomD = 28;
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    positions[i * 3]     = (Math.random() - 0.5) * roomW;
+    positions[i * 3 + 1] = Math.random() * roomH;
+    positions[i * 3 + 2] = (Math.random() - 0.5) * roomD;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  // Store per-particle phase offsets in a second attribute so each mote bobs
+  // at a different point in its sine wave — avoids lockstep drifting.
+  const phases = new Float32Array(PARTICLE_COUNT * 3);
+  for (let i = 0; i < PARTICLE_COUNT * 3; i++) phases[i] = Math.random() * Math.PI * 2;
+  geo.setAttribute('phase', new THREE.BufferAttribute(phases, 3));
+  const mat = new THREE.PointsMaterial({
+    color: 0xA78BFA, size: 0.04, transparent: true, opacity: 0.35,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  state.particles = new THREE.Points(geo, mat);
+  scene.add(state.particles);
+}
+
+function updateParticles(dt) {
+  if (!state.particles) return;
+  const pos = state.particles.geometry.attributes.position.array;
+  const ph = state.particles.geometry.attributes.phase.array;
+  const t = performance.now() * 0.001;
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    const ix = i * 3, iy = i * 3 + 1, iz = i * 3 + 2;
+    // Gentle figure-8 drift — each axis oscillates at a different frequency
+    pos[iy] += Math.sin(t * 0.4 + ph[iy]) * dt * 0.15;  // vertical bob
+    pos[ix] += Math.cos(t * 0.3 + ph[ix]) * dt * 0.10;  // horizontal drift
+    pos[iz] += Math.sin(t * 0.35 + ph[iz]) * dt * 0.10;
+    // Wrap around room boundaries — particles stay inside
+    const roomW = 14, roomH = 6, roomD = 14;
+    if (pos[ix] >  roomW) pos[ix] = -roomW;
+    if (pos[ix] < -roomW) pos[ix] =  roomW;
+    if (pos[iy] >  roomH) pos[iy] = 0.1;
+    if (pos[iy] <  0.1)  pos[iy] = roomH;
+    if (pos[iz] >  roomD) pos[iz] = -roomD;
+    if (pos[iz] < -roomD) pos[iz] =  roomD;
+  }
+  state.particles.geometry.attributes.position.needsUpdate = true;
+}
+// Call once at boot so particles exist before rooms are built.
+createParticles();
 
 // ---------- procedural textures (Canvas-generated, no external files) ----------
 function _noiseCanvas(w, h, baseColor, grainStrength) {
@@ -633,6 +690,7 @@ function clearShell() {
   state.shellMeshes = [];
   state.walls = [];
   state.rooms = [];
+  createParticles();  // fresh particles for new layout
 }
 
 // Push a collision segment for an XZ-aligned wall slab.
@@ -2232,6 +2290,9 @@ function animate() {
     updateRoomBadge();
     updateLintelVisibility();
   }
+
+  // ambient particles — gentle drift
+  updateParticles(dt);
 
   // camera shake — apply right before render so it doesn't affect collision
   if (_shakeIntensity > 0.0005) {

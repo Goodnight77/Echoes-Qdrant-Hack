@@ -29,7 +29,7 @@ from qdrant_client import QdrantClient
 _thumbnail_cache: dict[str, str] = {}
 _thumbnail_cache_max = 500
 
-from indexer import (
+from echos.indexer import (
     AUDIO_EXTS,
     COLLECTION,
     PHOTO_EXTS,
@@ -45,9 +45,9 @@ from indexer import (
     reset_cancel as indexer_reset_cancel,
     transcribe_audio,
 )
-from search import recommend_more_like, search
-from viz import VALID_SPACES, invalidate_cache as viz_invalidate, projection as viz_projection
-from museum import (
+from echos.search import recommend_more_like, search
+from echos.viz import VALID_SPACES, invalidate_cache as viz_invalidate, projection as viz_projection
+from echos.museum import (
     cached_layout as museum_cached,
     invalidate_cache as museum_invalidate,
     layout as museum_layout,
@@ -56,7 +56,7 @@ from museum import (
 )
 import asyncio
 import json as _json
-from faces_lib import (
+from echos.faces_lib import (
     consolidate_all_labels,
     crop_face_jpeg,
     ensure_faces_collection,
@@ -84,7 +84,7 @@ ensure_voice_collection(client)
 # Qdrant Edge write buffer — fast ingest layer. On boot, replay any
 # crash-leftover points into the main collection.
 try:
-    from edge_buffer import EdgeBuffer
+    from echos.edge_buffer import EdgeBuffer
     _edge = EdgeBuffer(DATA_DIR)
     _stale_edge = _edge.count()
     if _stale_edge:
@@ -191,13 +191,21 @@ def root():
 class SearchBody(BaseModel):
     query: str
     top_k: int | None = 12
+    geo_lat: float | None = None
+    geo_lon: float | None = None
+    geo_radius_m: float | None = None
 
 
 @app.post("/search")
 def search_endpoint(body: SearchBody):
     if not body.query.strip():
         raise HTTPException(400, "empty query")
-    out = search(client, body.query, body.top_k or 12)
+    out = search(
+        client, body.query, body.top_k or 12,
+        geo_lat=body.geo_lat,
+        geo_lon=body.geo_lon,
+        geo_radius_m=body.geo_radius_m,
+    )
     return {"query": body.query, "results": out["results"], "matched_labels": out["matched_labels"]}
 
 
@@ -628,7 +636,7 @@ def ask_endpoint(body: AskBody):
 
     If the LLM is unreachable, falls back to a structured list of top results."""
     from search import search
-    from llm_client import ask_llm
+    from echos.llm_client import ask_llm
 
     q = body.question.strip()
     if not q:

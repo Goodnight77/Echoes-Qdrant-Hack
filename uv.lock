@@ -753,6 +753,7 @@ dependencies = [
     { name = "easyocr" },
     { name = "fastapi" },
     { name = "gtts" },
+    { name = "httpx" },
     { name = "insightface" },
     { name = "numpy" },
     { name = "onnxruntime" },
@@ -761,8 +762,10 @@ dependencies = [
     { name = "pillow" },
     { name = "pillow-heif" },
     { name = "pydantic" },
+    { name = "python-dotenv" },
     { name = "python-multipart" },
     { name = "qdrant-client" },
+    { name = "qdrant-edge-py" },
     { name = "scikit-learn" },
     { name = "sentence-transformers" },
     { name = "transformers" },
@@ -775,6 +778,7 @@ requires-dist = [
     { name = "easyocr", specifier = ">=1.7.2" },
     { name = "fastapi", specifier = ">=0.136.1" },
     { name = "gtts", specifier = ">=2.5.4" },
+    { name = "httpx", specifier = ">=0.28.0" },
     { name = "insightface", specifier = ">=0.7.3" },
     { name = "numpy", specifier = ">=2.4.4" },
     { name = "onnxruntime", specifier = ">=1.25.1" },
@@ -783,8 +787,10 @@ requires-dist = [
     { name = "pillow", specifier = ">=12.2.0" },
     { name = "pillow-heif", specifier = ">=1.3.0" },
     { name = "pydantic", specifier = ">=2.13.3" },
+    { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "python-multipart", specifier = ">=0.0.27" },
     { name = "qdrant-client", specifier = ">=1.17.1" },
+    { name = "qdrant-edge-py", specifier = ">=0.7.0" },
     { name = "scikit-learn", specifier = ">=1.8.0" },
     { name = "sentence-transformers", specifier = "==3.3.1" },
     { name = "transformers", specifier = "==4.46.0" },
@@ -2164,6 +2170,27 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/30/dd/f8a8261b83946af3cd65943c93c4f83e044f01184e8525404989d22a81a5/qdrant_client-1.17.1.tar.gz", hash = "sha256:22f990bbd63485ed97ba551a4c498181fcb723f71dcab5d6e4e43fe1050a2bc0", size = 344979, upload-time = "2026-03-13T17:13:44.678Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/68/69/77d1a971c4b933e8c79403e99bcbb790463da5e48333cc4fd5d412c63c98/qdrant_client-1.17.1-py3-none-any.whl", hash = "sha256:6cda4064adfeaf211c751f3fbc00edbbdb499850918c7aff4855a9a759d56cbd", size = 389947, upload-time = "2026-03-13T17:13:43.156Z" },
+]
+
+[[package]]
+name = "qdrant-edge-py"
+version = "0.7.1"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/24/5f/3fe93c973bc697d360a1fe03ff384167f47345a7778b80db11bbdb6f4c59/qdrant_edge_py-0.7.1-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:f44eb7070c9398753483c1cf7e56d37d5be6eb3bb8ecc9d0b94418c8ca9b3cfb", size = 10542257, upload-time = "2026-05-28T22:41:12.952Z" },
+    { url = "https://files.pythonhosted.org/packages/de/33/140f6caa075ff5c6685e28803c83e666234a04b964e08be764007ea603d1/qdrant_edge_py-0.7.1-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:71a737e07638dcc9f650bc9ba6132f9377371c8b33d7509efe107d91688f93d9", size = 9915514, upload-time = "2026-05-28T22:41:15.425Z" },
+    { url = "https://files.pythonhosted.org/packages/78/38/2cb7f9c8c80e40e81184afc0fca999be99aa39cfce90c5d800e7ebb4b7b4/qdrant_edge_py-0.7.1-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:5e00205b6a3f781de014cd84160c5d8e2ec06587dc1638f1bb54ff8801b57c4d", size = 11257102, upload-time = "2026-05-28T22:41:17.954Z" },
+    { url = "https://files.pythonhosted.org/packages/dc/69/0f0dfcdc966be93d3d2d7c83b69e6bd88e388bc9557723fc041ea64d743f/qdrant_edge_py-0.7.1-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:9aaf5ef82df0009359333136b8ca3d7c5ece4cc00ba7f6d97beac713dddf9295", size = 10667466, upload-time = "2026-05-28T22:41:20.159Z" },
+    { url = "https://files.pythonhosted.org/packages/10/2e/88475cd7cee7f9f385fd27aa32507f683666eff3b11e4a796ad614deb0dd/qdrant_edge_py-0.7.1-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:6d5717d932f714076df6a2bbf6d33167a0b1482bc150aa30f6a1dc89077e71ab", size = 11257262, upload-time = "2026-05-28T22:41:22.138Z" },
+    { url = "https://files.pythonhosted.org/packages/b9/25/36bc76c77dafa34b8923cdb3e109b99cb1a6d6e2c5a9911b923c00817de0/qdrant_edge_py-0.7.1-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:b21683d653339ec77b12889a238c17ba2787e91f82b4fd69ff73a7ab95cf83f2", size = 10841434, upload-time = "2026-05-28T22:41:24.692Z" },
+    { url = "https://files.pythonhosted.org/packages/a2/92/3721d6defe2f7a1e28a46c9a526eee5975cba9eaa14487361208543723d4/qdrant_edge_py-0.7.1-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:a2cb4cab26de0370bfe18f05d1fbfef4efb85c7ecd07f1e67175480804f3ff8d", size = 11489126, upload-time = "2026-05-28T22:41:28.059Z" },
+    { url = "https://files.pythonhosted.org/packages/08/bf/13d80b1275d74aa0e710d32b8900fb0aff3357411bcbd3d9a1c69824ccdc/qdrant_edge_py-0.7.1-cp310-abi3-win_amd64.whl", hash = "sha256:9b89985450a7133783cf0fc852eb3fa2b87f592474f94935337d2ebd4e1dee55", size = 10578817, upload-time = "2026-05-28T22:41:30.385Z" },
+    { url = "https://files.pythonhosted.org/packages/b1/a3/636f179bb881a676e6ea5f1496a15c59b5f34c7f44a9275ae74890035b54/qdrant_edge_py-0.7.1-pp311-pypy311_pp73-macosx_10_12_x86_64.whl", hash = "sha256:c6c544ca46ea2b7884f0296876cb39dbc57a91d839be704a020e705ae5cbeb83", size = 10537139, upload-time = "2026-05-28T22:41:33.125Z" },
+    { url = "https://files.pythonhosted.org/packages/71/3a/0e0130f7a2a93702533a5dc002b60f37d83aa542ffe14fd60028fd826cde/qdrant_edge_py-0.7.1-pp311-pypy311_pp73-macosx_11_0_arm64.whl", hash = "sha256:891c7b0e93621e8275bff2030cc74dba81f1c8887fad399978a3bf4ea3ba4443", size = 9910477, upload-time = "2026-05-28T22:41:35.257Z" },
+    { url = "https://files.pythonhosted.org/packages/b3/fb/88d868688f6c84181dff6e0de1d617f055a38cf0fa1bb79ed93a96abd21a/qdrant_edge_py-0.7.1-pp311-pypy311_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f3800b538184ee64f514293a9490582233b91651d1cdb06c41b6d07007439488", size = 11253422, upload-time = "2026-05-28T22:41:38.019Z" },
+    { url = "https://files.pythonhosted.org/packages/c9/f5/44f129309d51fefae64b54ec90f08180a5bd6d625ddcdf2aefe951e5f76c/qdrant_edge_py-0.7.1-pp311-pypy311_pp73-manylinux_2_28_aarch64.whl", hash = "sha256:ff267a4f1ab9529fb665f784fb085e813acfce233acb5ca9d947fc82680cf8ce", size = 10660687, upload-time = "2026-05-28T22:41:40.275Z" },
+    { url = "https://files.pythonhosted.org/packages/64/e7/f9a044ab6a295a840017827599df25159cf8b99f680fae2d65546887d33f/qdrant_edge_py-0.7.1-pp311-pypy311_pp73-manylinux_2_28_x86_64.whl", hash = "sha256:4c24f0c2f3a1f091277a0a3c1016052be9086a4f02b8bbdb194f5ae5ae8e45ff", size = 11253953, upload-time = "2026-05-28T22:41:42.657Z" },
+    { url = "https://files.pythonhosted.org/packages/f3/e8/0e91efe41a08711596d7a5985908788eaf4fdd80113f3b0ff349a1e20a17/qdrant_edge_py-0.7.1-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:fafec737522d0a724628518b8ca51dd2d8c178b3e386574501e8efda9dfbc7ed", size = 10570639, upload-time = "2026-05-28T22:41:44.944Z" },
 ]
 
 [[package]]
