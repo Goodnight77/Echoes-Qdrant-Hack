@@ -1,0 +1,1793 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Échos · Museum</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap">
+<style>
+  :root {
+    --bg: #0b0b10;
+    --accent: #A78BFA;
+    --thread: #ff4757;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; background: var(--bg); color: #e8e8ee;
+               font-family: 'Inter', system-ui, sans-serif; }
+  #c { position: absolute; inset: 0; }
+  #overlay { position: absolute; inset: 0; pointer-events: none; }
+  #overlay > * { pointer-events: auto; }
+
+  .hud-row {
+    position: absolute; top: 16px; right: 16px; z-index: 20;
+    display: flex; gap: 8px; align-items: center;
+    max-width: calc(100vw - 380px);
+  }
+  .hud-pill {
+    background: rgba(8,8,14,0.78); backdrop-filter: blur(10px);
+    border: 1px solid rgba(167,139,250,0.35); border-radius: 999px;
+    padding: 10px 16px; font-size: 11px; letter-spacing: 0.04em;
+    color: #d4d4dc; display: flex; gap: 14px; align-items: center;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+  }
+  .refresh-btn {
+    display: flex; align-items: center; gap: 6px;
+    background: rgba(8,8,14,0.78); backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 999px;
+    padding: 10px 14px; font-size: 11px; letter-spacing: 0.04em;
+    color: #c8c8d0; font: inherit; font-size: 11px; cursor: pointer;
+    transition: background 160ms ease, border-color 160ms ease;
+  }
+  .refresh-btn.stale {
+    background: rgba(167,139,250,0.16);
+    border-color: rgba(167,139,250,0.6);
+    color: #f4f0ff;
+    animation: pulseGlow 2s ease-in-out infinite;
+  }
+  .refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .refresh-btn .arrow { display: inline-block; transform-origin: center; }
+  .refresh-btn.spinning .arrow { animation: spin 700ms linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pulseGlow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(167,139,250,0.0); }
+    50%      { box-shadow: 0 0 18px 0 rgba(167,139,250,0.45); }
+  }
+  .hud-pill b { color: var(--accent); font-weight: 600; }
+  .hud-pill .dot { width: 6px; height: 6px; border-radius: 999px; background: #4ade80; flex: 0 0 6px; }
+
+  /* Old top-left search-box hidden — hub-search at top-center replaces it. */
+  .search-box { display: none; }
+  .search-box input {
+    width: 100%; background: transparent; color: #e8e8ee;
+    border: none; outline: none; padding: 8px 12px; font: inherit; font-size: 13px;
+  }
+  .search-box input::placeholder { color: #6b6b78; }
+  .search-status { font-size: 10px; color: #8b8b98; padding: 0 12px 6px; }
+
+  /* Overlay is the full-screen click target for re-entering pointer lock.
+     Corner UI (back-to-galaxy, refresh button, minimap, search bar, room
+     badge) sit above this z-index so they stay clickable when unlocked. */
+  .enter-overlay {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.55); backdrop-filter: blur(4px);
+    cursor: pointer; z-index: 10;
+    transition: opacity 200ms ease;
+  }
+  /* Suppress every floating 3D-anchored UI element while a memory modal is
+     open: enter-overlay (would re-show on unlock), painting captions (the
+     "score 0.66 · matched via …" pill), and lintel labels (cluster titles
+     above hub doors). Otherwise they hover over the modal's image. */
+  body.modal-open .enter-overlay { display: none !important; }
+  body.modal-open .lintel,
+  body.modal-open .caption { visibility: hidden !important; }
+  /* After the very first entry, the welcome card never reappears — clicking
+     anywhere on the scene re-locks the pointer instead. */
+  body.entered .enter-overlay { display: none !important; }
+  .enter-card {
+    text-align: center; padding: 32px 44px;
+    border: 1px solid rgba(167,139,250,0.45); border-radius: 16px;
+    background: rgba(8,8,14,0.92); backdrop-filter: blur(10px);
+    max-width: 480px;
+    box-shadow: 0 12px 64px rgba(0,0,0,0.6);
+  }
+  .enter-card h1 { font-family: 'Playfair Display', serif; font-size: 32px; margin-bottom: 6px; }
+  .enter-card p { font-size: 13px; color: #a8a8b8; margin-bottom: 18px; }
+  .enter-card .keys { font-size: 11px; color: #6b6b78; line-height: 1.8; }
+  .enter-card .keys kbd {
+    background: #1a1a22; border: 1px solid #2c2c38; border-radius: 4px;
+    padding: 2px 6px; margin: 0 2px; font-family: inherit; font-size: 10px;
+  }
+
+  .lintel {
+    text-align: center; pointer-events: none;
+    font-family: 'Playfair Display', serif;
+    color: #f4f0e8; padding: 6px 14px;
+    background: rgba(8,8,14,0.7); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px; backdrop-filter: blur(8px);
+    text-shadow: 0 2px 8px rgba(0,0,0,0.6);
+    white-space: nowrap; user-select: none;
+  }
+  .lintel .title { font-size: 14px; font-weight: 600; letter-spacing: 0.03em; }
+  .lintel .meta { font-size: 9px; font-family: 'Inter', sans-serif; color: #a8a8b8;
+                  letter-spacing: 0.08em; text-transform: uppercase; margin-top: 2px; }
+
+  .caption {
+    pointer-events: none; user-select: none;
+    background: rgba(8,8,14,0.85); backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;
+    padding: 4px 8px; font-size: 9px; letter-spacing: 0.04em;
+    color: #c8c8d0; white-space: nowrap;
+    opacity: 0; transition: opacity 180ms ease; transform: translateY(4px);
+  }
+  .caption.show { opacity: 1; transform: translateY(0); }
+  .caption b { color: var(--accent); }
+
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(6px);
+    display: none; align-items: center; justify-content: center; z-index: 50; padding: 24px;
+  }
+  .modal-bg.show { display: flex; }
+  .modal-card {
+    background: #14141c; border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px; padding: 18px; max-width: 720px;
+    max-height: 90vh; overflow: auto;
+  }
+  .modal-card img, .modal-card video { max-width: 100%; max-height: 60vh; border-radius: 8px; display: block; }
+  .modal-card .meta { font-size: 11px; color: #8b8b98; margin-top: 12px; line-height: 1.7; }
+  .modal-card .close {
+    float: right; background: none; border: 1px solid #2c2c38; color: #c8c8d0;
+    padding: 4px 12px; border-radius: 999px; cursor: pointer; font: inherit; font-size: 11px;
+  }
+  .modal-card .close:hover { border-color: var(--accent); color: var(--accent); }
+
+  .nav-back {
+    position: absolute; bottom: 16px; left: 16px; z-index: 20;
+    background: rgba(8,8,14,0.78); backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;
+    padding: 8px 14px; font-size: 11px; color: #c8c8d0; text-decoration: none;
+  }
+  .nav-back:hover { border-color: var(--accent); color: var(--accent); }
+
+  .crosshair {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 4px; height: 4px; border-radius: 999px; background: rgba(255,255,255,0.55);
+    pointer-events: none; box-shadow: 0 0 0 1px rgba(0,0,0,0.4); display: none;
+  }
+  .crosshair.show { display: block; }
+
+  .minimap-wrap {
+    position: absolute; bottom: 16px; right: 16px; z-index: 20;
+    background: rgba(8,8,14,0.78); backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
+    padding: 8px;
+  }
+  .minimap-wrap .label {
+    font-size: 9px; letter-spacing: 0.12em; color: #8b8b98;
+    text-transform: uppercase; margin-bottom: 4px; text-align: center;
+  }
+  #minimap {
+    display: block; width: 180px; height: 180px;
+    border-radius: 6px; cursor: crosshair;
+    background: #0e0e14;
+  }
+  /* Search kiosk: always-visible top-center panel. Type a query, get 4
+     matching paintings; click one to teleport — works from hub OR inside any
+     room so the demo never has to fight visibility. */
+  .hub-search {
+    position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+    width: 420px; z-index: 20;
+    background: rgba(8,8,14,0.82); backdrop-filter: blur(14px);
+    border: 1px solid rgba(167,139,250,0.35); border-radius: 16px;
+    padding: 12px;
+    box-shadow: 0 12px 48px rgba(0,0,0,0.5), 0 0 32px rgba(167,139,250,0.10);
+  }
+  .hub-search .heading {
+    font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: #8b8b98; padding: 4px 8px 8px;
+  }
+  .hub-search input {
+    width: 100%; background: rgba(255,255,255,0.04); color: #e8e8ee;
+    border: 1px solid rgba(255,255,255,0.06); border-radius: 10px;
+    padding: 10px 14px; font: inherit; font-size: 13px; outline: none;
+  }
+  .hub-search input:focus { border-color: rgba(167,139,250,0.7); }
+  .hub-search .grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+    margin-top: 10px;
+  }
+  .hub-search .tile {
+    position: relative; aspect-ratio: 1 / 1; overflow: hidden;
+    border-radius: 8px; background: #1a1a22;
+    border: 1px solid rgba(255,255,255,0.06); cursor: pointer;
+    transition: transform 140ms ease, border-color 140ms ease;
+  }
+  .hub-search .tile img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  .hub-search .tile:hover { transform: scale(1.04); border-color: var(--accent); }
+  .hub-search .tile .score {
+    position: absolute; bottom: 2px; left: 2px; right: 2px;
+    font-size: 8px; letter-spacing: 0.04em; padding: 1px 4px;
+    background: rgba(0,0,0,0.5); color: #d4d4dc; border-radius: 4px;
+    text-align: center; backdrop-filter: blur(4px);
+  }
+  .hub-search .footnote {
+    font-size: 9px; color: #6b6b78; padding: 8px 8px 0; text-align: center;
+  }
+
+  .room-badge {
+    position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 20;
+    background: rgba(8,8,14,0.78); backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;
+    padding: 8px 16px; font-size: 11px; letter-spacing: 0.04em;
+    color: #d4d4dc; display: flex; gap: 8px; align-items: center;
+    opacity: 0; transition: opacity 200ms ease; pointer-events: none;
+  }
+  .room-badge.show { opacity: 1; }
+  .room-badge .swatch { width: 10px; height: 10px; border-radius: 999px; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<div id="overlay">
+  <div class="hud-row">
+    <button id="refreshBtn" class="refresh-btn" title="apply newly indexed memories">
+      <span class="arrow">↻</span><span id="refreshLabel">refresh</span>
+    </button>
+    <div class="hud-pill"><span class="dot"></span><span id="hudText">connecting…</span></div>
+  </div>
+
+  <div class="search-box">
+    <input id="q" type="text" placeholder="dog at the beach…" autocomplete="off">
+    <div id="searchStatus" class="search-status">↵ to teleport · click scene to lock mouse · esc to release</div>
+  </div>
+
+  <div id="crosshair" class="crosshair"></div>
+
+  <div id="enterOverlay" class="enter-overlay">
+    <div id="enterCard" class="enter-card">
+      <h1>Échos · Museum</h1>
+      <p>walk through your memories — arranged by what they mean to each other</p>
+      <div class="keys">
+        <kbd>click</kbd> to enter · <kbd>WASD</kbd> move · <kbd>mouse</kbd> look · <kbd>esc</kbd> release<br>
+        <kbd>1</kbd>–<kbd>8</kbd> teleport to room · <kbd>0</kbd> back to hub<br>
+        look at a painting to reveal its caption · <kbd>click</kbd> a painting to inspect
+      </div>
+    </div>
+  </div>
+
+  <a class="nav-back" href="/">← back to galaxy</a>
+
+  <div class="minimap-wrap">
+    <div class="label">map · click to teleport</div>
+    <canvas id="minimap" width="360" height="360"></canvas>
+  </div>
+
+  <div id="hubSearch" class="hub-search">
+    <div class="heading">find a memory · top 4 results</div>
+    <input id="hubSearchInput" type="text" placeholder="dog at the beach…" autocomplete="off">
+    <div class="grid" id="hubSearchGrid"></div>
+    <div class="footnote" id="hubSearchFoot">↵ to search · click a tile to teleport</div>
+  </div>
+
+  <div id="roomBadge" class="room-badge">
+    <span class="swatch" id="roomBadgeSwatch"></span>
+    <span id="roomBadgeText">—</span>
+  </div>
+</div>
+
+<div id="modal" class="modal-bg">
+  <div class="modal-card">
+    <button class="close" id="closeModal">close</button>
+    <div id="modalContent"></div>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+const state = {
+  layout: null,
+  mode: null,                  // 'single-room' | 'multi-room'
+  paintingsById: new Map(),    // id -> THREE.Mesh (userData carries frame/caption/panel/mem refs)
+  panelsById: new Map(),       // panel.id (single) | room.id (multi) -> {lintelObj, spot, target, ...meshes}
+  shellMeshes: [],             // floor, ceiling, walls — cleared on mode-change rebuild
+  walls: [],                   // collision segments {x1, z1, x2, z2}
+  rooms: [],                   // multi-room only: [{id, label, cluster_id, color, cx, cz, w, d}]
+  hoverId: null,
+  threads: [],                 // {line, mat, from, to}
+  mouseLocked: false,
+  pendingNewTotal: null,
+  refreshing: false,
+};
+
+const THREAD_BASE_OPACITY = 0.13;
+const THREAD_HOT_OPACITY  = 0.85;
+const THREAD_COLD_OPACITY = 0.04;
+const TWEEN_MS = 700;
+
+// Thumbnail loads were firing in one big burst at boot — ~130 parallel fetches
+// against /thumbnail/{id}, each of which decodes the image and base64-encodes
+// it on the server. Browser tab + FastAPI thread pool both suffered, and any
+// follow-up call (e.g. a refresh-triggered /museum/layout?fresh=1) got stuck
+// behind the backlog. Throttling at 6 in-flight keeps the server responsive
+// while still painting the room in well under a second per visible wall.
+const THUMB_MAX_PARALLEL = 6;
+const _thumbQueue = { active: 0, pending: [] };
+
+function loadThumbnail(url, onLoaded) {
+  _thumbQueue.pending.push({ url, onLoaded });
+  _drainThumbQueue();
+}
+
+function _drainThumbQueue() {
+  while (_thumbQueue.active < THUMB_MAX_PARALLEL && _thumbQueue.pending.length) {
+    const job = _thumbQueue.pending.shift();
+    _thumbQueue.active++;
+    fetch(job.url)
+      .then(r => r.json())
+      .then(j => new Promise((resolve) => {
+        new THREE.TextureLoader().load(j.data_url, (tex) => { resolve(tex); }, undefined, () => resolve(null));
+      }))
+      .then(tex => { if (tex) job.onLoaded(tex); })
+      .catch(() => {})
+      .finally(() => { _thumbQueue.active--; _drainThumbQueue(); });
+  }
+}
+
+// ---------- three.js setup ----------
+const canvas = document.getElementById('c');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#0b0b10');
+// Fog hides the far wall edge softly so the room feels deep, not boxed in.
+scene.fog = new THREE.Fog('#0b0b10', 14, 55);
+
+const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.05, 200);
+camera.position.set(0, 1.7, 8);
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.95;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const labelRenderer = new CSS2DRenderer();
+labelRenderer.setSize(innerWidth, innerHeight);
+labelRenderer.domElement.style.position = 'absolute';
+labelRenderer.domElement.style.top = '0';
+labelRenderer.domElement.style.left = '0';
+labelRenderer.domElement.style.pointerEvents = 'none';
+document.body.appendChild(labelRenderer.domElement);
+
+const controls = new PointerLockControls(camera, document.body);
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  labelRenderer.setSize(innerWidth, innerHeight);
+});
+
+// ---------- shared materials ----------
+const MAT_FLOOR = () => new THREE.MeshStandardMaterial({ color: 0x1c1c22, roughness: 0.85 });
+const MAT_CEIL  = () => new THREE.MeshStandardMaterial({ color: 0x14141a, roughness: 1.0 });
+// DoubleSide so walls remain visible from both rooms — the hub-side wall has
+// to read both from inside the hub (player walking up to a door) and from
+// inside the connected room (player turning around to look back at the door).
+// FrontSide would make the wall vanish from one of those views.
+const MAT_WALL  = () => new THREE.MeshStandardMaterial({
+  color: 0xd8d2c5, roughness: 0.92, side: THREE.DoubleSide,
+});
+
+function trackShell(mesh) { state.shellMeshes.push(mesh); scene.add(mesh); }
+
+function clearShell() {
+  for (const m of state.shellMeshes) {
+    scene.remove(m);
+    if (m.geometry) m.geometry.dispose();
+    if (m.material && m.material.dispose) m.material.dispose();
+  }
+  state.shellMeshes = [];
+  state.walls = [];
+  state.rooms = [];
+}
+
+// Push a collision segment for an XZ-aligned wall slab.
+function addWallSeg(x1, z1, x2, z2) { state.walls.push({ x1, z1, x2, z2 }); }
+
+// ---------- single-room shell ----------
+function buildRoom(room) {
+  const W = room.width, H = room.height, D = room.depth;
+
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, D), MAT_FLOOR());
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  trackShell(floor);
+
+  const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(W, D), MAT_CEIL());
+  ceiling.rotation.x = Math.PI / 2;
+  ceiling.position.y = H;
+  trackShell(ceiling);
+
+  const wallMat = MAT_WALL();
+
+  const north = new THREE.Mesh(new THREE.PlaneGeometry(W, H), wallMat);
+  north.position.set(0, H / 2, -D / 2);
+  trackShell(north);
+  addWallSeg(-W / 2, -D / 2, W / 2, -D / 2);
+
+  const south = new THREE.Mesh(new THREE.PlaneGeometry(W, H), wallMat);
+  south.position.set(0, H / 2, D / 2);
+  south.rotation.y = Math.PI;
+  trackShell(south);
+  addWallSeg(-W / 2, D / 2, W / 2, D / 2);
+
+  const east = new THREE.Mesh(new THREE.PlaneGeometry(D, H), wallMat);
+  east.position.set(W / 2, H / 2, 0);
+  east.rotation.y = -Math.PI / 2;
+  trackShell(east);
+  addWallSeg(W / 2, -D / 2, W / 2, D / 2);
+
+  const west = new THREE.Mesh(new THREE.PlaneGeometry(D, H), wallMat);
+  west.position.set(-W / 2, H / 2, 0);
+  west.rotation.y = Math.PI / 2;
+  trackShell(west);
+  addWallSeg(-W / 2, -D / 2, -W / 2, D / 2);
+
+  scene.add(new THREE.HemisphereLight(0xfff5e6, 0x1a1a20, 0.32));
+  scene.add(new THREE.AmbientLight(0xffffff, 0.10));
+
+  state.rooms = [{ id: 'main', cluster_id: null, label: '', color: '#888',
+                   cx: 0, cz: 0, w: W, d: D }];
+}
+
+// ---------- hub-and-spoke shell: octagonal hub at origin, rooms branch off ----------
+function buildHubSpoke(layout) {
+  const hub = layout.hub;
+  const A = hub.apothem;
+  const H_HUB = hub.height;
+  const SIDE_LEN = hub.side_length;
+  const halfDoor = hub.doorway_width / 2;
+  const HEADER_H = H_HUB - hub.doorway_height;
+
+  // One big floor + ceiling spanning hub + rooms (much simpler than tiling).
+  const FLOOR_RADIUS = A + layout.rooms[0]?.world.width + 6 || 30;
+  const floorSize = FLOOR_RADIUS * 2.5;
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(floorSize, floorSize), MAT_FLOOR());
+  floor.rotation.x = -Math.PI / 2;
+  trackShell(floor);
+
+  const wallMat = MAT_WALL();
+
+  // Octagonal hub: 8 sides, each at angle i*π/4. A side is solid OR has a
+  // centered doorway (gap + header) when a room sits behind it.
+  for (const sideMeta of hub.sides) {
+    const i = sideMeta.octagon_idx;
+    const theta = sideMeta.theta;
+    const midX = A * Math.cos(theta);
+    const midZ = A * Math.sin(theta);
+    // Inward normal: from side midpoint toward hub center.
+    // Plane default normal = +Z. We need rotation.y = α such that
+    // (sin α, 0, cos α) = (-cos θ, 0, -sin θ).
+    const rotY = Math.atan2(-Math.cos(theta), -Math.sin(theta));
+    // Tangent runs along the wall (perpendicular to outward normal).
+    const tx = -Math.sin(theta), tz = Math.cos(theta);
+
+    if (!sideMeta.has_door) {
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(SIDE_LEN, H_HUB), wallMat);
+      plane.position.set(midX, H_HUB / 2, midZ);
+      plane.rotation.y = rotY;
+      trackShell(plane);
+      // Collision: full side
+      const eax = midX - tx * SIDE_LEN / 2, eaz = midZ - tz * SIDE_LEN / 2;
+      const ebx = midX + tx * SIDE_LEN / 2, ebz = midZ + tz * SIDE_LEN / 2;
+      addWallSeg(eax, eaz, ebx, ebz);
+    } else {
+      // Side has door: 2 flank planes + header
+      const sideLenPart = (SIDE_LEN - hub.doorway_width) / 2;
+      const flankOffset = halfDoor + sideLenPart / 2;
+      const flankA = new THREE.Mesh(new THREE.PlaneGeometry(sideLenPart, H_HUB), wallMat);
+      flankA.position.set(midX - tx * flankOffset, H_HUB / 2, midZ - tz * flankOffset);
+      flankA.rotation.y = rotY;
+      trackShell(flankA);
+      const flankB = new THREE.Mesh(new THREE.PlaneGeometry(sideLenPart, H_HUB), wallMat);
+      flankB.position.set(midX + tx * flankOffset, H_HUB / 2, midZ + tz * flankOffset);
+      flankB.rotation.y = rotY;
+      trackShell(flankB);
+      // Header above door
+      const hdr = new THREE.Mesh(new THREE.PlaneGeometry(hub.doorway_width, HEADER_H), wallMat);
+      hdr.position.set(midX, hub.doorway_height + HEADER_H / 2, midZ);
+      hdr.rotation.y = rotY;
+      trackShell(hdr);
+      // Collision: 2 flank segments
+      const eax1 = midX - tx * SIDE_LEN / 2, eaz1 = midZ - tz * SIDE_LEN / 2;
+      const eax2 = midX - tx * halfDoor,     eaz2 = midZ - tz * halfDoor;
+      const ebx1 = midX + tx * halfDoor,     ebz1 = midZ + tz * halfDoor;
+      const ebx2 = midX + tx * SIDE_LEN / 2, ebz2 = midZ + tz * SIDE_LEN / 2;
+      addWallSeg(eax1, eaz1, eax2, eaz2);
+      addWallSeg(ebx1, ebz1, ebx2, ebz2);
+    }
+  }
+
+  // Hub ceiling — disc the size of the inner octagon (slightly larger so it
+  // covers when looking up from inside).
+  const hubCeil = new THREE.Mesh(
+    new THREE.CircleGeometry(A * 1.05, 8, 0, Math.PI * 2),
+    MAT_CEIL(),
+  );
+  hubCeil.rotation.x = Math.PI / 2;
+  hubCeil.position.y = H_HUB;
+  trackShell(hubCeil);
+
+  // Per-room shell: 4 walls (back solid, left solid, right solid, front with
+  // door split), ceiling, lintel, spotlight. Built using a Group so rotation
+  // is applied once and child positions stay readable.
+  for (const room of layout.rooms) {
+    const W = room.world.width, D = room.world.depth, RH = room.world.height;
+    const halfW = W / 2, halfD = D / 2;
+
+    state.rooms.push({
+      id: room.id, cluster_id: room.cluster_id, label: room.label, color: room.color,
+      cx: room.world.cx, cz: room.world.cz, w: W, d: D,
+      rotation_y: room.world.rotation_y,
+    });
+
+    const group = new THREE.Group();
+    group.position.set(room.world.cx, 0, room.world.cz);
+    group.rotation.y = room.world.rotation_y;
+    scene.add(group);
+    // Track group as shell so it disposes on rebuild.
+    state.shellMeshes.push(group);
+
+    // Back wall (focal): local z = +halfD
+    const back = new THREE.Mesh(new THREE.PlaneGeometry(W, RH), wallMat);
+    back.position.set(0, RH / 2, +halfD);
+    back.rotation.y = Math.PI;     // faces -Z (toward player)
+    group.add(back);
+
+    // Left wall: local x = -halfW
+    const left = new THREE.Mesh(new THREE.PlaneGeometry(D, RH), wallMat);
+    left.position.set(-halfW, RH / 2, 0);
+    left.rotation.y = Math.PI / 2; // faces +X
+    group.add(left);
+
+    // Right wall: local x = +halfW
+    const right = new THREE.Mesh(new THREE.PlaneGeometry(D, RH), wallMat);
+    right.position.set(+halfW, RH / 2, 0);
+    right.rotation.y = -Math.PI / 2; // faces -X
+    group.add(right);
+
+    // Front wall is OWNED BY THE HUB SIDE — the hub already drew that
+    // section's flanks + header. Drawing them again here would z-fight and
+    // produce visible double-walls around every doorway. Skip.
+
+    // Room ceiling
+    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, D), MAT_CEIL());
+    ceil.rotation.x = Math.PI / 2;
+    ceil.position.set(0, RH, 0);
+    group.add(ceil);
+
+    // Collision walls already in WORLD coords from backend
+    for (const w of room.walls) addWallSeg(w.x1, w.z1, w.x2, w.z2);
+  }
+
+  // Hub spotlight at center for ambient lift
+  scene.add(new THREE.HemisphereLight(0xfff5e6, 0x1a1a20, 0.32));
+  scene.add(new THREE.AmbientLight(0xffffff, 0.10));
+  const hubLight = new THREE.PointLight(0xfff0d8, 0.8, 22, 1.4);
+  hubLight.position.set(0, H_HUB - 0.5, 0);
+  scene.add(hubLight);
+  state.shellMeshes.push(hubLight);
+}
+
+// (Old grid-based multi-room renderer removed — replaced by buildHubSpoke.)
+
+// ---------- panel: lintel label + cluster-tinted spotlight ----------
+function buildPanel(panel) {
+  const lintelDiv = document.createElement('div');
+  lintelDiv.className = 'lintel';
+  lintelDiv.innerHTML = `
+    <div class="title">${escapeHtml(panel.label)}</div>
+    <div class="meta">cluster #${panel.cluster_id} · ${panel.size} memories · cohesion ${panel.cohesion.toFixed(2)}</div>
+  `;
+  const lintelObj = new CSS2DObject(lintelDiv);
+  lintelObj.position.set(panel.lintel.x, panel.lintel.y, panel.lintel.z);
+  scene.add(lintelObj);
+
+  // Spotlight color = cluster color. Plaster walls pick up the tint, making
+  // each section visually distinct without any extra geometry.
+  const target = new THREE.Object3D();
+  target.position.set(panel.lintel.x, 2, panel.lintel.z);
+  scene.add(target);
+
+  const spot = new THREE.SpotLight(
+    new THREE.Color(panel.color).getHex(),
+    1.5, 16, Math.PI / 5, 0.55, 1.0,
+  );
+  // Place spotlight ~1.8m off the wall, near the ceiling, aimed at panel center.
+  const offX = panel.lintel.x - Math.sin(panel.rotation_y) * 1.8;
+  const offZ = panel.lintel.z - Math.cos(panel.rotation_y) * 1.8;
+  spot.position.set(offX, state.layout.room.height - 0.3, offZ);
+  spot.target = target;
+  scene.add(spot);
+  state.panelsById.set(panel.id, { lintelObj, spot, target, panel });
+}
+
+function removePanel(panelId) {
+  const rec = state.panelsById.get(panelId);
+  if (!rec) return;
+  scene.remove(rec.lintelObj);
+  if (rec.lintelObj.element) rec.lintelObj.element.remove(); // CSS2D fallback
+  if (rec.lintelObj.geometry) rec.lintelObj.geometry.dispose();
+  if (rec.lintelMat) rec.lintelMat.dispose();
+  if (rec.lintelTex) rec.lintelTex.dispose();
+  scene.remove(rec.spot);
+  scene.remove(rec.target);
+  state.panelsById.delete(panelId);
+}
+
+// Generate a canvas texture for a wall-mounted lintel sign — title + meta on
+// a plaque background framed in cluster color. Why a baked texture instead of
+// CSS2D: a CSS2D billboard always faces the camera and never rotates with the
+// wall, so it floats and slides as the player moves. A textured plane stays
+// stuck to the wall like a real museum sign.
+function makeLintelTexture(label, meta, color, isPerson) {
+  const W = 768, H = 192;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  // Plaque background — slightly translucent dark
+  ctx.fillStyle = isPerson ? 'rgba(28, 22, 18, 0.96)' : 'rgba(20, 20, 28, 0.96)';
+  ctx.fillRect(0, 0, W, H);
+  // Cluster-color border
+  ctx.strokeStyle = color || '#A78BFA';
+  ctx.lineWidth = 6;
+  ctx.strokeRect(3, 3, W - 6, H - 6);
+  // Inner thin highlight line for that "engraved plaque" feel
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(14, 14, W - 28, H - 28);
+  // Title
+  ctx.fillStyle = '#f4f0e8';
+  ctx.font = 'italic 600 56px "Playfair Display", "Georgia", serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  // If label too long, scale down. Avoid overflow.
+  const labelText = label || '';
+  let fontSize = 56;
+  while (fontSize > 22 && ctx.measureText(labelText).width > W - 80) {
+    fontSize -= 4;
+    ctx.font = `italic 600 ${fontSize}px "Playfair Display", "Georgia", serif`;
+  }
+  ctx.fillText(labelText, W / 2, H / 2 - 14);
+  // Meta line
+  ctx.fillStyle = '#a8a8b8';
+  ctx.font = '500 22px Inter, system-ui, sans-serif';
+  ctx.fillText(meta, W / 2, H / 2 + 38);
+  // Person tag indicator (small dot in corner if person room)
+  if (isPerson) {
+    ctx.fillStyle = color || '#f5b1aa';
+    ctx.beginPath();
+    ctx.arc(W - 30, 30, 6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+// ---------- multi-room: wall-mounted lintel sign + cluster-color spotlight per room ----------
+function buildRoomPanel(room) {
+  const meta = `cluster #${room.cluster_id} · ${room.size} memories · cohesion ${room.cohesion.toFixed(2)}`;
+  const lintelTex = makeLintelTexture(room.label, meta, room.color, !!room.is_person);
+  const lintelMat = new THREE.MeshBasicMaterial({
+    map: lintelTex, transparent: true, side: THREE.FrontSide, depthWrite: false,
+  });
+  const lintelMesh = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 0.9), lintelMat);
+  lintelMesh.position.set(room.lintel.x, room.lintel.y, room.lintel.z);
+  lintelMesh.rotation.y = room.lintel.rotation_y || 0;
+  scene.add(lintelMesh);
+
+  const target = new THREE.Object3D();
+  target.position.set(room.world.cx, 0, room.world.cz);
+  scene.add(target);
+
+  const spot = new THREE.SpotLight(
+    new THREE.Color(room.color).getHex(),
+    1.7, 18, Math.PI / 3.5, 0.5, 1.0,
+  );
+  spot.position.set(room.world.cx, room.world.height - 0.3, room.world.cz);
+  spot.target = target;
+  scene.add(spot);
+
+  // Stored as `lintelObj` to keep the rest of the code (visibility toggling,
+  // removePanel) flowing through one name. `lintelObj.visible` works on
+  // Three.Mesh too — same API surface as CSS2DObject.
+  state.panelsById.set(room.id, {
+    lintelObj: lintelMesh,
+    lintelMat,
+    lintelTex,
+    spot,
+    target,
+    panel: room,
+  });
+}
+
+// ---------- painting ----------
+const placeholderTex = (() => {
+  const tex = new THREE.DataTexture(
+    new Uint8Array([60, 60, 70, 255]), 1, 1, THREE.RGBAFormat,
+  );
+  tex.needsUpdate = true;
+  return tex;
+})();
+
+function buildPainting(panel, mem) {
+  // Frame: slightly larger plane behind the painting, in cluster color.
+  const frameMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(panel.color),
+    roughness: 0.45, metalness: 0.55,
+  });
+  const frame = new THREE.Mesh(
+    new THREE.PlaneGeometry(mem.width + 0.08, mem.height + 0.08),
+    frameMat,
+  );
+  frame.position.set(mem.x, mem.y, mem.z);
+  frame.rotation.y = mem.rotation_y;
+  scene.add(frame);
+
+  // Painting plane sits 5mm in front of the frame so it never z-fights.
+  const tex = placeholderTex.clone();
+  const pMat = new THREE.MeshBasicMaterial({ map: tex, color: 0xffffff });
+  const painting = new THREE.Mesh(new THREE.PlaneGeometry(mem.width, mem.height), pMat);
+  const nx = Math.sin(mem.rotation_y), nz = Math.cos(mem.rotation_y);
+  painting.position.set(mem.x + nx * 0.005, mem.y, mem.z + nz * 0.005);
+  painting.rotation.y = mem.rotation_y;
+  painting.userData = { kind: 'painting', mem, panel };
+  scene.add(painting);
+  state.paintingsById.set(mem.id, painting);
+
+  // CSS2D caption sits just below the painting; hidden until hover.
+  const cap = document.createElement('div');
+  cap.className = 'caption';
+  cap.innerHTML = `<b>${escapeHtml(mem.type || '?')}</b> · ${escapeHtml(mem.match_caption)}`;
+  const capObj = new CSS2DObject(cap);
+  capObj.position.set(
+    mem.x + nx * 0.05,
+    mem.y - mem.height / 2 - 0.18,
+    mem.z + nz * 0.05,
+  );
+  scene.add(capObj);
+  painting.userData.captionEl = cap;
+  painting.userData.captionObj = capObj;
+  painting.userData.frame = frame;
+  painting.userData.frameMat = frameMat;
+  painting.userData.paintingMat = pMat;
+
+  // Throttled thumbnail load — see loadThumbnail() comment for why this matters.
+  loadThumbnail(mem.thumb_url, (tex) => {
+    tex.colorSpace = THREE.SRGBColorSpace;
+    pMat.map = tex;
+    pMat.needsUpdate = true;
+  });
+}
+
+function removePainting(id) {
+  const p = state.paintingsById.get(id);
+  if (!p) return;
+  scene.remove(p);
+  if (p.userData.frame) scene.remove(p.userData.frame);
+  if (p.userData.captionObj) {
+    scene.remove(p.userData.captionObj);
+    if (p.userData.captionObj.element) p.userData.captionObj.element.remove();
+  }
+  if (p.userData.frameMat) p.userData.frameMat.dispose();
+  if (p.userData.paintingMat) {
+    if (p.userData.paintingMat.map) p.userData.paintingMat.map.dispose();
+    p.userData.paintingMat.dispose();
+  }
+  state.paintingsById.delete(id);
+}
+
+// Smooth-move an existing painting (and its frame + caption) to a new memory
+// position. Used when a memory's cluster changed between layout rebuilds.
+// Input is the *new* mem record (carrying frame-coords x/y/z and rotation_y);
+// the painting plane is offset 5mm forward of the frame along the wall normal.
+function tweenPainting(id, newMem, newPanel) {
+  const p = state.paintingsById.get(id);
+  if (!p) return;
+  const fromPaintingPos = p.position.clone();
+  const fromFramePos = p.userData.frame.position.clone();
+  const fromRot = p.rotation.y;
+  const newRotY = newMem.rotation_y;
+  const nx = Math.sin(newRotY), nz = Math.cos(newRotY);
+  const toFramePos = new THREE.Vector3(newMem.x, newMem.y, newMem.z);
+  const toPaintingPos = new THREE.Vector3(
+    newMem.x + nx * 0.005, newMem.y, newMem.z + nz * 0.005,
+  );
+  // If panel (cluster) changed, retint the frame to the new cluster color.
+  if (newPanel && p.userData.panel.cluster_id !== newPanel.cluster_id) {
+    p.userData.frameMat.color.set(newPanel.color);
+    p.userData.panel = newPanel;
+  }
+  p.userData.mem = newMem;
+
+  const t0 = performance.now();
+  function step() {
+    const t = Math.min(1, (performance.now() - t0) / TWEEN_MS);
+    const ease = 1 - Math.pow(1 - t, 3);
+    p.position.lerpVectors(fromPaintingPos, toPaintingPos, ease);
+    p.userData.frame.position.lerpVectors(fromFramePos, toFramePos, ease);
+    const r = fromRot + (newRotY - fromRot) * ease;
+    p.rotation.y = r;
+    p.userData.frame.rotation.y = r;
+    const cnx = Math.sin(r), cnz = Math.cos(r);
+    p.userData.captionObj.position.set(
+      p.position.x + cnx * 0.05,
+      p.position.y - newMem.height / 2 - 0.18,
+      p.position.z + cnz * 0.05,
+    );
+    if (t < 1) requestAnimationFrame(step);
+  }
+  step();
+}
+
+// ---------- sky threads (S-Line: lift -> arc -> drop, always visible) ----------
+// Build once. Each k-NN edge is a cubic Bezier: painting A -> straight up to the
+// ceiling -> across to above painting B -> straight down into B. Result is a
+// canopy of red threads in the upper half of the room, the way fate-strings hang
+// in the show. On hover we brighten the hovered painting's outgoing threads and
+// dim every other so the user can read its connections without losing the field.
+function buildAllThreads() {
+  if (!state.layout) return;
+  // Ceiling height varies by mode: single-room → room.height,
+  // hub-spoke → hub.height (use the taller hub so threads fly between rooms
+  // through the central airspace).
+  let roomH;
+  if (state.layout.mode === 'hub-spoke') roomH = state.layout.hub.height;
+  else roomH = state.layout.room.height;
+  const ceilingY = roomH - 0.6;
+  for (const e of state.layout.edges) {
+    const src = state.paintingsById.get(e.from);
+    const dst = state.paintingsById.get(e.to);
+    if (!src || !dst) continue;
+    const a = src.position.clone();
+    const d = dst.position.clone();
+    const b = new THREE.Vector3(a.x, ceilingY, a.z);
+    const c = new THREE.Vector3(d.x, ceilingY, d.z);
+    const curve = new THREE.CubicBezierCurve3(a, b, c, d);
+    const geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(36));
+    const mat = new THREE.LineBasicMaterial({
+      color: 0xff4757, transparent: true, opacity: THREAD_BASE_OPACITY,
+    });
+    const line = new THREE.Line(geo, mat);
+    scene.add(line);
+    state.threads.push({ line, mat, from: e.from, to: e.to });
+  }
+}
+
+function highlightThreadsFor(memId) {
+  for (const t of state.threads) {
+    if (memId == null) {
+      t.mat.opacity = THREAD_BASE_OPACITY;
+    } else if (t.from === memId) {
+      t.mat.opacity = THREAD_HOT_OPACITY;
+    } else {
+      t.mat.opacity = THREAD_COLD_OPACITY;
+    }
+  }
+}
+
+function clearAllThreads() {
+  for (const t of state.threads) {
+    scene.remove(t.line);
+    t.line.geometry.dispose();
+    t.mat.dispose();
+  }
+  state.threads = [];
+}
+
+// Dispatch on layout.mode so the same boot path handles single-room and
+// hub-and-spoke layouts.
+function buildSceneForLayout(data) {
+  if (data.mode === 'hub-spoke') {
+    buildHubSpoke(data);
+    for (const room of data.rooms) {
+      buildRoomPanel(room);
+      for (const mem of room.memories) buildPainting(room, mem);
+    }
+    // Spawn at hub center so the player can read every cluster lintel from
+    // the spawn before deciding which room to enter.
+    const sp = data.hub.spawn;
+    controls.getObject().position.set(sp.x, sp.y, sp.z);
+  } else {
+    buildRoom(data.room);
+    for (const panel of data.panels) {
+      buildPanel(panel);
+      for (const mem of panel.memories) buildPainting(panel, mem);
+    }
+  }
+  state.layout = data;
+}
+
+// Full rebuild used when the mode changes (single↔multi) or when a refresh
+// brings a layout that doesn't fit a per-painting diff (e.g. completely
+// different cluster set).
+function fullRebuild(newLayout) {
+  for (const id of Array.from(state.paintingsById.keys())) removePainting(id);
+  for (const id of Array.from(state.panelsById.keys())) removePanel(id);
+  clearAllThreads();
+  clearShell();
+  state.mode = newLayout.mode || 'single-room';
+  buildSceneForLayout(newLayout);
+  buildAllThreads();
+  recalibrateMinimap();
+  updateHudFromLayout(newLayout);
+}
+
+function updateHudFromLayout(layout) {
+  const s = layout.stats;
+  const hud = document.getElementById('hudText');
+  if (!s || s.total_memories === 0) {
+    hud.innerHTML = `<span>museum is empty — drop memories on the <a href="/" style="color:var(--accent);text-decoration:underline">home page</a> first</span>`;
+    return;
+  }
+  const modeStr = (layout.mode === 'hub-spoke')
+    ? `${s.n_rooms ?? s.n_clusters} rooms`
+    : `${s.n_clusters} clusters`;
+  hud.innerHTML = `
+    <span><b>${s.total_memories}</b> memories</span>
+    <span><b>${modeStr}</b></span>
+    <span><b>${s.vector_dims.join('+')}</b> dims</span>
+    <span style="color:#8b8b98">${escapeHtml(s.clustering)}</span>
+  `;
+}
+
+// Apply a freshly-fetched layout. Diffs against the current state so existing
+// memories tween rather than blinking; only true newcomers fade in and only
+// removed memories fade out. Panels and threads are rebuilt fully because
+// they are cheap to recreate and tying them to ids is more code than it's
+// worth for the few CSS2D elements involved.
+function applyLayout(newLayout) {
+  if (!newLayout) return;
+  // Mode change → can't diff (entirely different geometry). Nuke + rebuild.
+  if ((newLayout.mode || 'single-room') !== state.mode) {
+    fullRebuild(newLayout);
+    return;
+  }
+  const oldIds = new Set(state.paintingsById.keys());
+  const newMemMap = new Map();   // id -> {mem, section} where section = panel | room
+  const isMulti = newLayout.mode === 'hub-spoke';
+  const sections = isMulti ? newLayout.rooms : newLayout.panels;
+  for (const sec of sections) {
+    for (const mem of sec.memories) newMemMap.set(mem.id, { mem, panel: sec });
+  }
+
+  // Clear sections (lintels + spotlights) and rebuild from new layout
+  for (const id of Array.from(state.panelsById.keys())) removePanel(id);
+
+  state.layout = newLayout;
+  const builderFn = isMulti ? buildRoomPanel : buildPanel;
+  for (const sec of sections) builderFn(sec);
+
+  // Diff paintings
+  for (const id of oldIds) {
+    if (!newMemMap.has(id)) {
+      // Memory deleted -> fade out by shrinking opacity over a few frames
+      const p = state.paintingsById.get(id);
+      if (p && p.userData.paintingMat) {
+        const mat = p.userData.paintingMat;
+        const fmat = p.userData.frameMat;
+        mat.transparent = true;
+        fmat.transparent = true;
+        const t0 = performance.now();
+        const dur = 400;
+        function fade() {
+          const t = Math.min(1, (performance.now() - t0) / dur);
+          mat.opacity = 1 - t;
+          fmat.opacity = 1 - t;
+          if (t < 1) requestAnimationFrame(fade);
+          else removePainting(id);
+        }
+        fade();
+      } else {
+        removePainting(id);
+      }
+    }
+  }
+  for (const [id, { mem, panel }] of newMemMap) {
+    if (oldIds.has(id)) {
+      tweenPainting(id, mem, panel);
+    } else {
+      buildPainting(panel, mem);
+      // Fade in
+      const p = state.paintingsById.get(id);
+      if (p) {
+        const mat = p.userData.paintingMat;
+        const fmat = p.userData.frameMat;
+        mat.transparent = true;
+        fmat.transparent = true;
+        mat.opacity = 0;
+        fmat.opacity = 0;
+        const t0 = performance.now();
+        const dur = 600;
+        function rise() {
+          const t = Math.min(1, (performance.now() - t0) / dur);
+          mat.opacity = t;
+          fmat.opacity = t;
+          if (t < 1) requestAnimationFrame(rise);
+        }
+        rise();
+      }
+    }
+  }
+
+  // Threads always fully rebuilt (cheap, and the edge set may have changed)
+  clearAllThreads();
+  buildAllThreads();
+
+  recalibrateMinimap();
+  updateHudFromLayout(newLayout);
+}
+
+// SSE: server pushes a "stale" event whenever the cached layout falls behind
+// the indexed corpus. We don't auto-refresh — instead we surface a manual
+// button so the player isn't yanked around mid-walk.
+function setupEvents() {
+  const refreshBtn = document.getElementById('refreshBtn');
+  const refreshLabel = document.getElementById('refreshLabel');
+
+  function showRefresh(newTotal, currentTotal) {
+    state.pendingNewTotal = newTotal;
+    const delta = (newTotal != null && currentTotal != null)
+      ? Math.max(0, newTotal - currentTotal)
+      : null;
+    refreshLabel.textContent = delta != null && delta > 0
+      ? `refresh · ${delta} new`
+      : 'refresh · new';
+    refreshBtn.classList.add('stale');
+  }
+  function hideRefresh() {
+    state.pendingNewTotal = null;
+    refreshLabel.textContent = 'refresh';
+    refreshBtn.classList.remove('stale');
+  }
+
+  refreshBtn.addEventListener('click', async () => {
+    if (state.refreshing) return;
+    state.refreshing = true;
+    refreshBtn.classList.add('spinning');
+    refreshLabel.textContent = 'rebuilding…';
+    try {
+      const r = await fetch('/museum/layout?fresh=1');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      applyLayout(data);
+      hideRefresh();
+    } catch (e) {
+      refreshLabel.textContent = 'retry';
+    } finally {
+      state.refreshing = false;
+      refreshBtn.classList.remove('spinning');
+    }
+  });
+
+  const ev = new EventSource('/museum/events');
+  ev.addEventListener('stale', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      const current = state.layout?.stats?.total_memories ?? 0;
+      showRefresh(data.live_total ?? null, current);
+    } catch {
+      showRefresh(null, null);
+    }
+  });
+  ev.onerror = () => { /* browser auto-reconnects; no UI noise */ };
+}
+
+// ---------- minimap ----------
+// Top-down 2D map of the museum. Rooms are colored rectangles, doorways are
+// gaps in walls, the player is an arrow whose direction follows the camera.
+// Click a point → teleport the player to that world XZ.
+const minimapState = {
+  canvas: null, ctx: null, scale: 1, offsetX: 0, offsetY: 0,
+};
+
+function setupMinimap() {
+  const canvas = document.getElementById('minimap');
+  if (!canvas) return;
+  const dpr = devicePixelRatio || 1;
+  canvas.width = 180 * dpr;
+  canvas.height = 180 * dpr;
+  canvas.style.width = '180px';
+  canvas.style.height = '180px';
+  minimapState.canvas = canvas;
+  minimapState.ctx = canvas.getContext('2d');
+  minimapState.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  recalibrateMinimap();
+  canvas.addEventListener('click', (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    const cx = ev.clientX - rect.left;
+    const cz = ev.clientY - rect.top;
+    const wx = (cx - minimapState.offsetX) / minimapState.scale;
+    const wz = (cz - minimapState.offsetY) / minimapState.scale;
+    teleportTo(wx, wz);
+  });
+}
+
+function recalibrateMinimap() {
+  const bounds = computeMapBounds();
+  const cssW = 180, cssH = 180;
+  const m = 8;
+  const innerW = cssW - 2 * m;
+  const innerH = cssH - 2 * m;
+  const sx = innerW / Math.max(1, bounds.w);
+  const sy = innerH / Math.max(1, bounds.h);
+  minimapState.scale = Math.min(sx, sy);
+  minimapState.offsetX = m + (innerW - bounds.w * minimapState.scale) / 2 - bounds.minX * minimapState.scale;
+  minimapState.offsetY = m + (innerH - bounds.h * minimapState.scale) / 2 - bounds.minZ * minimapState.scale;
+}
+
+function computeMapBounds() {
+  if (!state.rooms.length) {
+    return { minX: -15, minZ: -15, w: 30, h: 30 };
+  }
+  let minX = +Infinity, minZ = +Infinity, maxX = -Infinity, maxZ = -Infinity;
+  for (const r of state.rooms) {
+    minX = Math.min(minX, r.cx - r.w / 2);
+    maxX = Math.max(maxX, r.cx + r.w / 2);
+    minZ = Math.min(minZ, r.cz - r.d / 2);
+    maxZ = Math.max(maxZ, r.cz + r.d / 2);
+  }
+  return { minX, minZ, w: maxX - minX, h: maxZ - minZ };
+}
+
+function teleportTo(wx, wz) {
+  // Snap to closest room center to avoid teleporting into a wall.
+  if (state.rooms.length) {
+    let best = null, bestD = Infinity;
+    for (const r of state.rooms) {
+      const d = (r.cx - wx) ** 2 + (r.cz - wz) ** 2;
+      if (d < bestD) { bestD = d; best = r; }
+    }
+    if (best) {
+      controls.getObject().position.set(best.cx, 1.7, best.cz);
+      return;
+    }
+  }
+  controls.getObject().position.set(wx, 1.7, wz);
+}
+
+function drawMinimap() {
+  const ctx = minimapState.ctx;
+  if (!ctx) return;
+  // Subtle radial-feel background using a faux gradient (stop count = 2 keeps
+  // it cheap on every frame).
+  const bg = ctx.createRadialGradient(90, 90, 10, 90, 90, 110);
+  bg.addColorStop(0, '#13131c');
+  bg.addColorStop(1, '#0a0a10');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 180, 180);
+
+  const s = minimapState.scale, ox = minimapState.offsetX, oy = minimapState.offsetY;
+
+  // Hub: octagon-shaped fill at origin (only in hub-spoke mode).
+  if (state.layout?.mode === 'hub-spoke') {
+    const A = state.layout.hub.apothem;
+    const cx0 = 0 * s + ox, cz0 = 0 * s + oy;
+    const r = A * s / Math.cos(Math.PI / 8);
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a = Math.PI / 8 + i * Math.PI / 4;
+      const px = cx0 + r * Math.cos(a);
+      const py = cz0 + r * Math.sin(a);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(167,139,250,0.10)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(167,139,250,0.55)';
+    ctx.lineWidth = 1.3;
+    ctx.stroke();
+  }
+
+  // Rooms: rounded rectangles, rotation-aware (the hub-spoke rooms are
+  // rotated to face the hub, so plain axis-aligned rects would render at the
+  // wrong angle on the map).
+  for (const r of state.rooms) {
+    if (r.id === 'main') continue;  // single-room: skip drawing — it IS the map
+    const cx = r.cx * s + ox, cz = r.cz * s + oy;
+    const halfW = (r.w * s) / 2, halfH = (r.d * s) / 2;
+    const rotY = r.rotation_y || 0;
+    ctx.save();
+    ctx.translate(cx, cz);
+    ctx.rotate(rotY);
+    // Rounded rect path
+    const rad = Math.min(4, halfW, halfH);
+    ctx.beginPath();
+    ctx.moveTo(-halfW + rad, -halfH);
+    ctx.lineTo(+halfW - rad, -halfH);
+    ctx.quadraticCurveTo(+halfW, -halfH, +halfW, -halfH + rad);
+    ctx.lineTo(+halfW, +halfH - rad);
+    ctx.quadraticCurveTo(+halfW, +halfH, +halfW - rad, +halfH);
+    ctx.lineTo(-halfW + rad, +halfH);
+    ctx.quadraticCurveTo(-halfW, +halfH, -halfW, +halfH - rad);
+    ctx.lineTo(-halfW, -halfH + rad);
+    ctx.quadraticCurveTo(-halfW, -halfH, -halfW + rad, -halfH);
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(0, -halfH, 0, +halfH);
+    grad.addColorStop(0, hexToRgba(r.color || '#888', 0.30));
+    grad.addColorStop(1, hexToRgba(r.color || '#888', 0.12));
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.strokeStyle = hexToRgba(r.color || '#aaa', 0.85);
+    ctx.lineWidth = 1.1;
+    ctx.stroke();
+    ctx.restore();
+
+    // Label drawn upright at world room center (always readable, never
+    // upside-down even when room is rotated).
+    if (r.label) {
+      ctx.fillStyle = '#e8e8ee';
+      ctx.font = '600 8px Inter, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(truncate(r.label, 12), cx, cz);
+    }
+  }
+
+  // Walls — thin desaturated strokes so doorway gaps read at a glance.
+  ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  for (const w of state.walls) {
+    ctx.moveTo(w.x1 * s + ox, w.z1 * s + oy);
+    ctx.lineTo(w.x2 * s + ox, w.z2 * s + oy);
+  }
+  ctx.stroke();
+
+  // Player arrow with a soft glow halo
+  const obj = controls.getObject();
+  const px = obj.position.x * s + ox;
+  const pz = obj.position.z * s + oy;
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  const ang = Math.atan2(dir.x, dir.z);
+  ctx.save();
+  ctx.translate(px, pz);
+  ctx.beginPath();
+  ctx.arc(0, 0, 8, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(167,139,250,0.18)';
+  ctx.fill();
+  ctx.rotate(ang);
+  ctx.fillStyle = '#A78BFA';
+  ctx.strokeStyle = 'rgba(8,8,14,0.7)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, -6);
+  ctx.lineTo(4.5, 4);
+  ctx.lineTo(-4.5, 4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function hexToRgba(hex, a) {
+  const m = hex.replace('#', '').match(/.{1,2}/g);
+  if (!m || m.length < 3) return `rgba(160,160,160,${a})`;
+  const [r, g, b] = m.slice(0, 3).map(h => parseInt(h, 16));
+  return `rgba(${r},${g},${b},${a})`;
+}
+function truncate(s, n) { return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+
+// World→room-local point (handles rotated rooms in hub-spoke mode).
+function _worldToRoomLocal(px, pz, r) {
+  const dx = px - r.cx, dz = pz - r.cz;
+  const ca = Math.cos(r.rotation_y || 0), sa = Math.sin(r.rotation_y || 0);
+  return { lx: ca * dx - sa * dz, lz: sa * dx + ca * dz };
+}
+
+function _findContainingRoom(px, pz) {
+  for (const r of state.rooms) {
+    const { lx, lz } = _worldToRoomLocal(px, pz, r);
+    if (Math.abs(lx) <= r.w / 2 && Math.abs(lz) <= r.d / 2) return r;
+  }
+  return null;
+}
+
+// Hide every lintel that doesn't belong to the room the player is currently
+// in. When the player is in the hub (no containing room), all lintels are
+// visible — the player is reading them to pick a door.
+function updateLintelVisibility() {
+  if (state.layout?.mode !== 'hub-spoke') return;  // single-room: keep all lintels
+  const obj = controls.getObject();
+  const inRoom = _findContainingRoom(obj.position.x, obj.position.z);
+  for (const [roomId, rec] of state.panelsById) {
+    rec.lintelObj.visible = (inRoom == null) || (inRoom.id === roomId);
+  }
+}
+
+// Player-in-room badge: bottom-center pill that names the room player is in.
+function updateRoomBadge() {
+  const badge = document.getElementById('roomBadge');
+  const swatch = document.getElementById('roomBadgeSwatch');
+  const text = document.getElementById('roomBadgeText');
+  if (!badge || !state.rooms.length) return;
+  const obj = controls.getObject();
+  const inside = _findContainingRoom(obj.position.x, obj.position.z);
+  if (inside && inside.label) {
+    swatch.style.background = inside.color || '#888';
+    text.innerHTML = inside.cluster_id != null
+      ? `cluster #${inside.cluster_id} · ${escapeHtml(inside.label)}`
+      : escapeHtml(inside.label);
+    badge.classList.add('show');
+  } else {
+    badge.classList.remove('show');
+  }
+}
+
+// Hub kiosk: top-4 search results that teleport on click. Visible only when
+// the player is in the hub (in any room → hidden). Re-uses /search endpoint.
+const hubSearchState = { wired: false, lastQuery: '' };
+
+function setupHubSearch() {
+  if (hubSearchState.wired) return;
+  hubSearchState.wired = true;
+  const input = document.getElementById('hubSearchInput');
+  const grid = document.getElementById('hubSearchGrid');
+  const foot = document.getElementById('hubSearchFoot');
+  if (!input || !grid) return;
+
+  // Releasing pointer-lock so the player can type. Lock returns when they
+  // click outside the kiosk or hit Escape.
+  input.addEventListener('focus', () => { if (state.mouseLocked) controls.unlock(); });
+
+  input.addEventListener('keydown', async (e) => {
+    if (e.key === 'Escape') { input.blur(); return; }
+    if (e.key !== 'Enter') return;
+    const q = input.value.trim();
+    if (!q) { grid.innerHTML = ''; return; }
+    foot.textContent = 'searching…';
+    grid.innerHTML = '';
+    try {
+      const r = await fetch('/search', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: q, top_k: 4 }),
+      });
+      const j = await r.json();
+      hubSearchState.lastQuery = q;
+      const hits = (j.results || []).slice(0, 4);
+      if (!hits.length) { foot.textContent = 'no match'; return; }
+      foot.textContent = `top ${hits.length} · click a tile to teleport`;
+
+      // Score story: hit.score is the fused RRF rank (≈0.016 for any rank-1
+      // result — meaningless to show). raw_scores per space carries actual
+      // cosine. CLIP visual cosines are naturally compressed (0.18-0.35
+      // means a real match), so we display each hit's cosine NORMALISED to
+      // the top hit's cosine. Top result reads 100%, others scaled down.
+      const rawBest = hits.map(h => {
+        const v = Object.values(h.raw_scores || {});
+        return v.length ? Math.max(...v) : 0;
+      });
+      const normMax = Math.max(...rawBest, 1e-6);
+
+      hits.forEach((hit, idx) => {
+        const target = state.paintingsById.get(hit.id);
+        const tile = document.createElement('div');
+        tile.className = 'tile';
+        const via = (hit.matched_via || []).join('+');
+        const bestRaw = rawBest[idx];
+        const relPct = Math.round((bestRaw / normMax) * 100);
+        // Tooltip explains both numbers explicitly so user knows what they
+        // mean: relative match strength + the underlying cosine value.
+        tile.title = `${via || '?'} · ${relPct}% relative match · cosine ${bestRaw.toFixed(2)}`;
+        const img = document.createElement('img');
+        if (target && target.userData.paintingMat?.map?.image?.src) {
+          img.src = target.userData.paintingMat.map.image.src;
+        } else {
+          fetch(hit.thumb_url || `/thumbnail/${hit.id}`)
+            .then(r => r.json()).then(j => { if (j.data_url) img.src = j.data_url; })
+            .catch(() => {});
+        }
+        tile.appendChild(img);
+        const score = document.createElement('div');
+        score.className = 'score';
+        // Show the relative-match percentage (top result = 100%) so the
+        // numbers feel intuitive even when CLIP cosines hover around 0.20.
+        score.textContent = `${relPct}%`;
+        tile.appendChild(score);
+        tile.addEventListener('click', () => {
+          if (target) {
+            flyTo(target);
+            grid.innerHTML = '';
+            input.value = '';
+            foot.textContent = `teleported · ${via} · ${relPct}% match`;
+            controls.lock();
+          } else {
+            foot.textContent = 'matched but offstage — try another phrase';
+          }
+        });
+        grid.appendChild(tile);
+      });
+    } catch (err) {
+      foot.textContent = 'error: ' + err.message;
+    }
+  });
+}
+
+// Show/hide the hub kiosk based on whether the player is currently in the
+// hub. Cheap call from animate().
+function updateHubSearchVisibility() {
+  const panel = document.getElementById('hubSearch');
+  if (!panel) return;
+  if (state.layout?.mode !== 'hub-spoke') {
+    panel.classList.remove('show');
+    return;
+  }
+  const obj = controls.getObject();
+  const inRoom = _findContainingRoom(obj.position.x, obj.position.z);
+  if (inRoom == null) panel.classList.add('show');
+  else panel.classList.remove('show');
+}
+
+// ---------- movement + collision ----------
+const MOVE = { f: false, b: false, l: false, r: false };
+const velocity = new THREE.Vector3();
+const direction = new THREE.Vector3();
+let prevTime = performance.now();
+
+addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.code === 'KeyW' || e.code === 'ArrowUp') MOVE.f = true;
+  if (e.code === 'KeyS' || e.code === 'ArrowDown') MOVE.b = true;
+  if (e.code === 'KeyA' || e.code === 'ArrowLeft') MOVE.l = true;
+  if (e.code === 'KeyD' || e.code === 'ArrowRight') MOVE.r = true;
+  // 1-8 teleport to room N. 0 returns to hub center. Works whether or not
+  // the mouse is locked, so demos don't need to release pointer-lock first.
+  if (e.code >= 'Digit0' && e.code <= 'Digit9') {
+    const n = parseInt(e.code.slice(5), 10);
+    if (n === 0) {
+      // Hub center if hub-spoke; room center for single-room.
+      if (state.layout?.mode === 'hub-spoke') {
+        const sp = state.layout.hub.spawn;
+        controls.getObject().position.set(sp.x, 1.7, sp.z);
+      } else {
+        controls.getObject().position.set(0, 1.7, 0);
+      }
+    } else if (n >= 1 && n <= state.rooms.length) {
+      const room = state.rooms[n - 1];
+      controls.getObject().position.set(room.cx, 1.7, room.cz);
+    }
+  }
+});
+addEventListener('keyup', (e) => {
+  if (e.code === 'KeyW' || e.code === 'ArrowUp') MOVE.f = false;
+  if (e.code === 'KeyS' || e.code === 'ArrowDown') MOVE.b = false;
+  if (e.code === 'KeyA' || e.code === 'ArrowLeft') MOVE.l = false;
+  if (e.code === 'KeyD' || e.code === 'ArrowRight') MOVE.r = false;
+});
+
+// Segment-segment intersection in XZ plane. Used for wall collision so the
+// player can walk through doorways (gap = no segment) but is blocked by solid
+// walls (segment = blocked).
+function _segIntersect(p1x, p1z, p2x, p2z, p3x, p3z, p4x, p4z) {
+  const denom = (p4z - p3z) * (p2x - p1x) - (p4x - p3x) * (p2z - p1z);
+  if (Math.abs(denom) < 1e-9) return false;
+  const ua = ((p4x - p3x) * (p1z - p3z) - (p4z - p3z) * (p1x - p3x)) / denom;
+  const ub = ((p2x - p1x) * (p1z - p3z) - (p2z - p1z) * (p1x - p3x)) / denom;
+  return ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1;
+}
+
+function _moveCrossesWall(prevX, prevZ, nextX, nextZ) {
+  for (const w of state.walls) {
+    if (_segIntersect(prevX, prevZ, nextX, nextZ, w.x1, w.z1, w.x2, w.z2)) return true;
+  }
+  return false;
+}
+
+function applyMovementCollision(prevX, prevZ) {
+  // Eye-level locked. Walls collide in XZ only. If the move from prev → current
+  // crosses any wall segment, snap back. Doorways have no segment so the player
+  // walks through without resistance.
+  const obj = controls.getObject();
+  obj.position.y = 1.7;
+  if (_moveCrossesWall(prevX, prevZ, obj.position.x, obj.position.z)) {
+    obj.position.x = prevX;
+    obj.position.z = prevZ;
+  }
+}
+
+// ---------- pointer lock ----------
+const enterOverlay = document.getElementById('enterOverlay');
+const crosshair = document.getElementById('crosshair');
+enterOverlay.addEventListener('click', () => controls.lock());
+
+controls.addEventListener('lock', () => {
+  state.mouseLocked = true;
+  // Once the player has locked the pointer at least once, the welcome card
+  // never reappears for the rest of the session — re-locking happens via a
+  // body click handler instead. CSS `body.entered` does the hiding.
+  document.body.classList.add('entered');
+  enterOverlay.style.display = 'none';
+  crosshair.classList.add('show');
+});
+controls.addEventListener('unlock', () => {
+  state.mouseLocked = false;
+  // After first entry, never resurrect the welcome card. Inline display:flex
+  // would override the CSS rule, so reset it and let the body classes decide.
+  enterOverlay.style.display = '';
+  crosshair.classList.remove('show');
+});
+
+// Click anywhere on the scene (canvas) to re-engage pointer lock once the
+// player has entered at least once. UI elements (modal, hub-search, minimap,
+// nav buttons) are covered by .closest() so they keep their own behavior.
+document.body.addEventListener('click', (e) => {
+  if (state.mouseLocked) return;
+  if (!document.body.classList.contains('entered')) return;
+  if (document.body.classList.contains('modal-open')) return;
+  // Don't intercept clicks that are meant for UI elements.
+  if (e.target.closest('.modal-card, .hub-search, .minimap-wrap, .room-badge, .hud-row, .nav-back, .enter-card')) return;
+  controls.lock();
+});
+
+// ---------- raycast hover ----------
+const ray = new THREE.Raycaster();
+const center = new THREE.Vector2(0, 0);
+
+function updateHover() {
+  if (!state.mouseLocked) return;
+  ray.setFromCamera(center, camera);
+  const meshes = [...state.paintingsById.values()];
+  const hits = ray.intersectObjects(meshes, false);
+  const hit = hits[0]?.object;
+
+  if (state.hoverId && (!hit || hit.userData.mem.id !== state.hoverId)) {
+    const prev = state.paintingsById.get(state.hoverId);
+    if (prev) prev.userData.captionEl.classList.remove('show');
+    state.hoverId = null;
+    highlightThreadsFor(null);
+  }
+  if (hit && hit.userData.kind === 'painting') {
+    const id = hit.userData.mem.id;
+    if (id !== state.hoverId) {
+      state.hoverId = id;
+      hit.userData.captionEl.classList.add('show');
+      highlightThreadsFor(id);
+    }
+  }
+}
+
+document.body.addEventListener('mousedown', (e) => {
+  if (!state.mouseLocked) return;
+  if (state.hoverId) {
+    e.preventDefault();
+    openModal(state.hoverId);
+  }
+});
+
+// ---------- search teleport ----------
+const searchInput = document.getElementById('q');
+const searchStatus = document.getElementById('searchStatus');
+
+searchInput.addEventListener('focus', () => {
+  if (state.mouseLocked) controls.unlock();
+});
+searchInput.addEventListener('keydown', async (e) => {
+  if (e.key === 'Enter') {
+    const q = searchInput.value.trim();
+    if (!q) return;
+    searchStatus.textContent = 'searching…';
+    try {
+      const r = await fetch('/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: q, top_k: 1 }),
+      });
+      const j = await r.json();
+      const top = j.results?.[0];
+      if (!top) { searchStatus.textContent = 'no match'; return; }
+      const target = state.paintingsById.get(top.id);
+      if (!target) { searchStatus.textContent = 'matched but not on a wall'; return; }
+      flyTo(target);
+      const v = (top.matched_via || []).join('+') || '?';
+      searchStatus.textContent = `teleported · matched via ${v} · score ${top.score.toFixed(3)}`;
+      controls.lock();
+    } catch (err) {
+      searchStatus.textContent = 'error: ' + err.message;
+    }
+  } else if (e.key === 'Escape') {
+    searchInput.blur();
+  }
+});
+
+function flyTo(painting) {
+  // Stand 2.5m off the painting along its normal, eye-level.
+  const nx = Math.sin(painting.rotation.y);
+  const nz = Math.cos(painting.rotation.y);
+  const targetPos = new THREE.Vector3(
+    painting.position.x + nx * 2.5,
+    1.7,
+    painting.position.z + nz * 2.5,
+  );
+  const startPos = controls.getObject().position.clone();
+  const lookAt = painting.position.clone();
+  const dur = 900;
+  const t0 = performance.now();
+  function step() {
+    const t = Math.min(1, (performance.now() - t0) / dur);
+    const ease = 1 - Math.pow(1 - t, 3);
+    const obj = controls.getObject();
+    obj.position.lerpVectors(startPos, targetPos, ease);
+    camera.lookAt(lookAt);
+    if (t < 1) requestAnimationFrame(step);
+    else {
+      const entry = state.panelsById.get(painting.userData.panel.id);
+      if (entry) pulseSpot(entry.spot);
+    }
+  }
+  step();
+}
+
+function pulseSpot(spot) {
+  const base = spot.intensity;
+  const t0 = performance.now();
+  function step() {
+    const t = (performance.now() - t0) / 700;
+    if (t > 1) { spot.intensity = base; return; }
+    spot.intensity = base + Math.sin(t * Math.PI) * 1.8;
+    requestAnimationFrame(step);
+  }
+  step();
+}
+
+// ---------- modal ----------
+const modal = document.getElementById('modal');
+const modalContent = document.getElementById('modalContent');
+function _closeModal() {
+  // Stop any media playback BEFORE clearing innerHTML, otherwise audio can
+  // keep playing in the background until garbage collection.
+  modalContent.querySelectorAll('video, audio').forEach((el) => {
+    try { el.pause(); el.removeAttribute('src'); el.load(); } catch {}
+  });
+  modal.classList.remove('show');
+  document.body.classList.remove('modal-open');
+  // Clear the modal innards so the next open starts fresh and any lingering
+  // media element references die.
+  modalContent.innerHTML = '';
+}
+document.getElementById('closeModal').addEventListener('click', _closeModal);
+modal.addEventListener('click', (e) => { if (e.target === modal) _closeModal(); });
+
+function openModal(id) {
+  const painting = state.paintingsById.get(id);
+  if (!painting) return;
+  const mem = painting.userData.mem;
+  const panel = painting.userData.panel;
+  let mediaHtml = '';
+  if (mem.type === 'photo' || mem.type === 'screenshot') {
+    mediaHtml = `<img src="${mem.media_url}" alt="">`;
+  } else if (mem.type === 'video') {
+    mediaHtml = `<video controls src="${mem.media_url}"></video>`;
+  } else if (mem.type === 'voice_memo') {
+    mediaHtml = `<audio controls src="${mem.media_url}" style="width:100%"></audio>`;
+  }
+  const ts = mem.timestamp ? new Date(mem.timestamp * 1000).toLocaleString() : '—';
+  modalContent.innerHTML = `
+    ${mediaHtml}
+    <div class="meta">
+      <div><b style="color:var(--accent)">${escapeHtml(mem.type || '?')}</b> · ${ts}</div>
+      <div>cluster <b style="color:${panel.color}">#${panel.cluster_id} · ${escapeHtml(panel.label)}</b></div>
+      <div>${escapeHtml(mem.match_caption)}</div>
+      ${mem.transcript ? `<div style="margin-top:8px;color:#a8a8b8">"${escapeHtml(mem.transcript)}"</div>` : ''}
+      ${mem.ocr_text ? `<div style="margin-top:8px;color:#a8a8b8">${escapeHtml(mem.ocr_text)}</div>` : ''}
+    </div>
+  `;
+  document.body.classList.add('modal-open');
+  // Drop any active hover so the caption pill doesn't keep its .show class
+  // and reappear the instant the modal closes.
+  if (state.hoverId) {
+    const prev = state.paintingsById.get(state.hoverId);
+    if (prev) prev.userData.captionEl.classList.remove('show');
+    state.hoverId = null;
+    highlightThreadsFor(null);
+  }
+  if (state.mouseLocked) controls.unlock();
+  modal.classList.add('show');
+}
+
+// ---------- helpers ----------
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;',
+  }[c]));
+}
+
+// ---------- animate ----------
+function animate() {
+  requestAnimationFrame(animate);
+  const now = performance.now();
+  const dt = Math.min(0.05, (now - prevTime) / 1000);
+  prevTime = now;
+
+  if (controls.isLocked) {
+    velocity.x -= velocity.x * 8 * dt;
+    velocity.z -= velocity.z * 8 * dt;
+    direction.set(0, 0, 0);
+    if (MOVE.f) direction.z -= 1;
+    if (MOVE.b) direction.z += 1;
+    if (MOVE.l) direction.x -= 1;
+    if (MOVE.r) direction.x += 1;
+    direction.normalize();
+    const speed = 22.0;
+    if (MOVE.f || MOVE.b) velocity.z -= direction.z * speed * dt;
+    if (MOVE.l || MOVE.r) velocity.x -= direction.x * speed * dt;
+    const prev = controls.getObject().position.clone();
+    controls.moveRight(-velocity.x * dt);
+    controls.moveForward(-velocity.z * dt);
+    applyMovementCollision(prev.x, prev.z);
+    updateHover();
+    drawMinimap();
+    updateRoomBadge();
+    updateLintelVisibility();
+  }
+
+  renderer.render(scene, camera);
+  labelRenderer.render(scene, camera);
+}
+
+// ---------- boot ----------
+async function boot() {
+  const hud = document.getElementById('hudText');
+  hud.textContent = 'fetching layout…';
+  let data;
+  try {
+    // 60s safety timeout — better to surface "took too long" than hang.
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 60000);
+    const r = await fetch('/museum/layout', { signal: ctrl.signal });
+    clearTimeout(t);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    data = await r.json();
+  } catch (e) {
+    hud.textContent = 'layout error: ' + (e.name === 'AbortError' ? 'request timed out (60s)' : e.message);
+    console.error('[museum] layout fetch failed', e);
+    return;
+  }
+  try {
+    state.layout = data;
+    state.mode = data.mode || 'single-room';
+    buildSceneForLayout(data);
+    buildAllThreads();
+    setupEvents();
+    setupMinimap();
+    setupHubSearch();
+    updateHudFromLayout(data);
+    animate();
+  } catch (e) {
+    hud.textContent = 'render error: ' + e.message;
+    console.error('[museum] scene build failed', e);
+  }
+}
+
+boot();
+</script>
+</body>
+</html>

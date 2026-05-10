@@ -165,6 +165,42 @@ def _mtime(path: str | Path) -> float:
     return os.path.getmtime(path)
 
 
+def _photo_timestamp(path: str | Path) -> float:
+    """Capture date for an image, in priority order:
+       1. EXIF DateTimeOriginal — when the camera shutter fired
+       2. EXIF DateTimeDigitized — when the file was first written to a digital
+          form (close enough for scanned negatives, screenshotted images)
+       3. EXIF DateTime — last camera-side edit
+       4. file mtime — last filesystem write
+    Phone-to-PC copies often reset mtime to the copy moment, which makes the
+    photo's actual capture date disappear. EXIF survives the copy."""
+    import datetime as _dt
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            exif = im.getexif()
+            exif_ifd = exif.get_ifd(0x8769) if 0x8769 in exif else {}
+            for tag in (36867, 36868):  # DateTimeOriginal, DateTimeDigitized
+                v = exif_ifd.get(tag) or exif.get(tag)
+                if not v:
+                    continue
+                try:
+                    s = v.strip().replace("\x00", "")
+                    return _dt.datetime.strptime(s, "%Y:%m:%d %H:%M:%S").timestamp()
+                except (ValueError, AttributeError):
+                    continue
+            v = exif.get(306)  # DateTime
+            if v:
+                try:
+                    s = v.strip().replace("\x00", "")
+                    return _dt.datetime.strptime(s, "%Y:%m:%d %H:%M:%S").timestamp()
+                except (ValueError, AttributeError):
+                    pass
+    except Exception:
+        pass
+    return _mtime(path)
+
+
 def _try_index_faces(client: QdrantClient, memory_id: str, path: str | Path) -> None:
     try:
         from faces_lib import index_faces_for_memory
@@ -188,7 +224,7 @@ def index_photo(client: QdrantClient, path: str | Path) -> str:
             payload={
                 "type": "photo",
                 "path": str(path),
-                "timestamp": _mtime(path),
+                "timestamp": _photo_timestamp(path),
                 "ocr_text": ocr,
             },
         )],
@@ -212,7 +248,7 @@ def index_screenshot(client: QdrantClient, path: str | Path) -> str:
             payload={
                 "type": "screenshot",
                 "path": str(path),
-                "timestamp": _mtime(path),
+                "timestamp": _photo_timestamp(path),
                 "ocr_text": ocr,
             },
         )],

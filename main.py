@@ -7,6 +7,14 @@ import os
 import time
 from pathlib import Path
 
+# Load .env early so any later import (e.g. groq_labels reading GROQ_API_KEY at
+# module level) sees the keys. Quiet fallback if python-dotenv isn't installed.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -27,6 +35,15 @@ from indexer import (
 )
 from search import recommend_more_like, search
 from viz import VALID_SPACES, invalidate_cache as viz_invalidate, projection as viz_projection
+from museum import (
+    cached_layout as museum_cached,
+    invalidate_cache as museum_invalidate,
+    layout as museum_layout,
+    mark_dirty as museum_mark_dirty,
+    status as museum_status,
+)
+import asyncio
+import json as _json
 from faces_lib import (
     consolidate_all_labels,
     crop_face_jpeg,
@@ -57,8 +74,53 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.on_event("startup")
+async def _bump_threadpool():
+    """Sync routes (/thumbnail, /media, /museum/layout when forced) all run on
+    anyio's thread pool. The default tokens count is 40 — a museum boot fires
+    100+ /thumbnail requests in parallel and the rebuild path competes with
+    them. Lift the cap so neither side starves the other."""
+    from anyio import to_thread
+    try:
+        to_thread.current_default_thread_limiter().total_tokens = 200
+    except Exception:
+        pass
+
 if Path("static").exists():
     app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+# --- Museum SSE: notify connected clients when a /upload (or similar) leaves
+# the cached layout stale, so the UI can offer a "refresh" button instead of
+# auto-jumping the player around mid-walk.
+_museum_subscribers: set[asyncio.Queue] = set()
+
+
+def _museum_broadcast(event: dict) -> None:
+    payload = _json.dumps(event)
+    for q in list(_museum_subscribers):
+        try:
+            q.put_nowait(payload)
+        except asyncio.QueueFull:
+            pass
+
+
+def _notify_museum_dirty(reason: str) -> None:
+    info = museum_mark_dirty()
+    cached = museum_cached() or {}
+    last_total = cached.get("stats", {}).get("total_memories", 0)
+    try:
+        live_total = client.get_collection(COLLECTION).points_count or 0
+    except Exception:
+        live_total = last_total
+    _museum_broadcast({
+        "type": "stale",
+        "reason": reason,
+        "version": info["version"],
+        "last_total": last_total,
+        "live_total": live_total,
+    })
 
 
 @app.get("/")
@@ -98,6 +160,7 @@ def index_folder_endpoint(body: IndexBody):
     t0 = time.time()
     counts = index_folder(client, folder)
     viz_invalidate()
+    _notify_museum_dirty("index-folder")
     return {"folder": str(folder), "counts": counts, "took_seconds": round(time.time() - t0, 2)}
 
 
@@ -133,6 +196,7 @@ async def upload(files: list[UploadFile] = File(...), kind: str | None = None):
             continue
         saved.append({"name": name, "saved_as": out.name, "point_id": pid})
     viz_invalidate()
+    _notify_museum_dirty("upload")
     return {"uploaded": saved}
 
 
@@ -303,6 +367,7 @@ def reset():
     client.delete_collection(COLLECTION)
     ensure_collection(client)
     viz_invalidate()
+    museum_invalidate()
     return {"ok": True}
 
 
@@ -311,6 +376,62 @@ def viz_projection_endpoint(space: str = "visual", neighbors: int = 3):
     if space not in VALID_SPACES:
         raise HTTPException(400, f"space must be one of {VALID_SPACES}")
     return viz_projection(client, space=space, neighbors=neighbors)
+
+
+@app.get("/museum/layout")
+async def museum_layout_endpoint(min_cluster_size: int = 3, fresh: int = 0):
+    """Default: serve the last good layout if one exists (fast, doesn't block
+    the museum during a heavy upload). `?fresh=1` forces a rebuild.
+    Async + offload to thread so a slow rebuild doesn't choke the FastAPI
+    sync thread pool — important when /thumbnail spam from boot is in flight."""
+    if not fresh:
+        cached = museum_cached()
+        if cached is not None:
+            return cached
+    return await asyncio.to_thread(museum_layout, client, min_cluster_size)
+
+
+@app.get("/museum/status")
+def museum_status_endpoint():
+    return museum_status()
+
+
+@app.get("/museum/events")
+async def museum_events():
+    """Server-Sent Events: pushes a `stale` event whenever uploads / deletions
+    leave the cached layout out of date. Client uses this to surface a manual
+    refresh button (we don't auto-redraw the user's view mid-walk)."""
+    from fastapi.responses import StreamingResponse
+
+    async def gen():
+        q: asyncio.Queue = asyncio.Queue(maxsize=32)
+        _museum_subscribers.add(q)
+        try:
+            # Initial hello so the client knows the channel is live.
+            yield f"event: ready\ndata: {_json.dumps(museum_status())}\n\n"
+            while True:
+                try:
+                    payload = await asyncio.wait_for(q.get(), timeout=20.0)
+                    yield f"event: stale\ndata: {payload}\n\n"
+                except asyncio.TimeoutError:
+                    # Comment frame to keep proxies / browsers from closing the
+                    # connection on idle.
+                    yield ": keepalive\n\n"
+        finally:
+            _museum_subscribers.discard(q)
+
+    return StreamingResponse(gen(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    })
+
+
+@app.get("/museum")
+def museum_page():
+    page = Path("static/museum.html")
+    if not page.exists():
+        raise HTTPException(404, "museum.html missing")
+    return FileResponse(page)
 
 
 @app.post("/resurface")
@@ -358,6 +479,7 @@ def forget(body: ForgetBody):
         except OSError:
             pass
     viz_invalidate()
+    _notify_museum_dirty("forget")
     return {"ok": True, "forgot": body.point_id, "file_deleted": body.delete_file}
 
 
