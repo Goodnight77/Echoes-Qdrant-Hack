@@ -96,9 +96,30 @@ The web UI is responsive + dark mode → works on iPhone Safari today. Native Ex
 
 iOS blocks autoplay — tap the play button on the video / audio player manually inside the modal.
 
-### Index your real iPhone gallery
+### Index from iPhone — direct upload (no cable)
 
-The demo data is fine; **real data wins the demo.** Drop your own files into `./memories/` on the PC, then re-index.
+Open `http://<PC_IP>:8000/` on iPhone Safari. Tap **"+ add memory"** in the header. iOS file picker opens with three sources:
+
+- **Photo Library** — pick photos / videos (multi-select supported).
+- **Take Photo or Video** — capture in the moment.
+- **Browse** — pulls from the Files app, including voice memos saved there.
+
+After pick → file streams to PC over WiFi → backend embeds + upserts → stats badge updates → if a query is open, results refresh.
+
+**HEIC and HEIF** (iPhone default) are supported (`pillow-heif`). No conversion needed.
+
+**Voice memos:** the Photo Library picker doesn't show them. Two paths:
+1. iPhone **Voice Memos** app → tap memo → Share → **Save to Files** → in Files pick a folder → from Échos upload, choose **Browse** → select the `.m4a`.
+2. Or pre-stage memos in iCloud Drive / Files / On My iPhone, then Browse from upload.
+
+**Screenshots:** uploaded normally → indexed as photos. Want them treated as screenshots (mandatory OCR)? Either rename to start with `screenshot_`, or POST with `kind=screenshot`:
+```powershell
+curl -X POST "http://127.0.0.1:8000/upload?kind=screenshot" -F "files=@my_shot.png"
+```
+
+### Index your real iPhone gallery — bulk transfer alternative
+
+If you want to bulk-import 50+ items at once, dropping into `./memories/` is faster than the upload UI.
 
 **Three ways to get iPhone media onto the PC:**
 
