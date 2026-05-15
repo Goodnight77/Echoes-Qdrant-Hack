@@ -21,21 +21,26 @@
 ---
 
 ```mermaid
-flowchart LR
-    A[Browser / iPhone] -->|WiFi| B[FastAPI :8000]
-    B --> C[(Qdrant<br/>embedded)]
-    B --> D[Edge Buffer<br/>crash-safe]
-    C --> E[memories<br/>visual · audio · ocr]
-    C --> F[faces<br/>embedding 512d]
-    C --> G[voice_memories<br/>text 384d]
-    B --> H[Models]
-    H --> I[CLIP · Whisper · MiniLM]
-    H --> J[EasyOCR · ArcFace]
-    H --> K[Qwen 2.5 · LM Studio]
-    B --> L[React SPA]
-    B --> M[3D Museum<br/>Three.js]
-    D -.->|replay on boot| C
-    A -->|SSE| B
+flowchart TB
+    A[Files] --> B[Indexer]
+    B --> C[CLIP ViT-B-32<br/>visual · 512d]
+    B --> D[all-MiniLM-L6-v2<br/>text · 384d]
+    B --> E[Whisper tiny<br/>speech-to-text]
+    B --> F[EasyOCR<br/>text from images]
+    B --> G[ArcFace<br/>face embeddings · 512d]
+    C --> H[(Qdrant)]
+    D --> H
+    E --> H
+    F --> H
+    G --> H
+    H --> I[FastAPI]
+    I --> J[Search]
+    I --> K[3D Museum]
+    I --> L[Voice Assistant]
+    J --> M[Browser]
+    K --> M
+    L --> M
+    N[Qwen 2.5 3B · LM Studio] --> L
 ```
 
 ---
@@ -69,6 +74,22 @@ Search fans out into all spaces in parallel; results merge via cosine-weighted f
 ## Qdrant Edge
 
 `edge_buffer.py` wraps `qdrant-edge-py` as a crash-safe write buffer. On server start, any leftover points from an interrupted indexing session are replayed into the main `memories` collection, then the Edge shard is cleared. This guarantees no memory is lost if the process dies mid-index. The Edge shard lives at `qdrant_storage/edge_buffer/` alongside the embedded Qdrant store.
+
+
+---
+## example 
+query : orange cats 
+![orange-cats.png](static/orange-cats.png)
+
+query: sky and nature
+![sky-and-nature.png](static/sky-and-nature.png)
+query : messi
+![messi.png](static/messi.png)
+query : andrej karpathy 
+![karpathy.png](static/karpathy.png)
+query : art photos
+![art-photos.png](static/art-photos.png)
+
 
 ---
 

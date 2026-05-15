@@ -26,7 +26,7 @@ WALL_INSET = 0.25  # paint this far inside the wall plane to avoid z-fighting
 
 # Painting layout
 PAINTING_W = 1.4
-PAINTING_H = 1.0
+PAINTING_H = 1.35
 PAINTING_GAP = 0.2
 WALL_MARGIN = 1.0       # space at each wall corner with no paintings
 FLOOR_CLEAR = 1.4       # bottom row's lower edge sits this high above floor
@@ -80,7 +80,7 @@ CORRIDOR_GAP = 0.0            # 0 = room directly attached to hub side
 DOORWAY_WIDTH = 3.0           # door width in both hub side and room front
 DOORWAY_HEIGHT = 3.6          # door clearance
 MULTI_PAINTING_W = 1.4
-MULTI_PAINTING_H = 1.0
+MULTI_PAINTING_H = 1.35
 MULTI_FLOOR_CLEAR = 1.4
 MULTI_CEIL_CLEAR = 0.8
 MULTI_WALL_MARGIN = 0.7

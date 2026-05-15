@@ -256,7 +256,7 @@
      matching paintings; click one to teleport — works from hub OR inside any
      room so the demo never has to fight visibility. */
   .hub-search {
-    position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+    position: absolute; top: 56px; left: 50%; transform: translateX(-50%);
     width: 420px; z-index: 20;
     background: rgba(8,8,14,0.82); backdrop-filter: blur(14px);
     border: 1px solid rgba(167,139,250,0.35); border-radius: 16px;
@@ -610,25 +610,63 @@ function _plasterTex() {
 }
 
 function _floorTex() {
-  // Dark polished concrete: deep charcoal with subtle aggregate speckle.
+  // Polished terrazzo gallery floor — visible marble chips in warm grey base.
   const W = 512, H = 512;
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const ctx = c.getContext('2d');
-  ctx.fillStyle = '#1a1a1e'; ctx.fillRect(0, 0, W, H);
+
+  // Base: medium warm grey
+  ctx.fillStyle = '#4a4540'; ctx.fillRect(0, 0, W, H);
+
+  // Stronger noise grain
   const img = ctx.getImageData(0, 0, W, H);
   for (let i = 0; i < img.data.length; i += 4) {
-    const n = (Math.random() - 0.5) * 18;
-    img.data[i] = Math.min(255, Math.max(0, img.data[i] + n));
+    const n = (Math.random() - 0.5) * 22;
+    img.data[i]   = Math.min(255, Math.max(0, img.data[i] + n));
     img.data[i+1] = Math.min(255, Math.max(0, img.data[i+1] + n));
     img.data[i+2] = Math.min(255, Math.max(0, img.data[i+2] + n));
   }
   ctx.putImageData(img, 0, 0);
-  // Aggregate speckles — lighter dots like polished stone
-  ctx.globalAlpha = 0.12;
-  for (let i = 0; i < 800; i++) {
-    ctx.fillStyle = Math.random() < 0.5 ? '#888' : '#666';
-    ctx.beginPath(); ctx.arc(Math.random() * W, Math.random() * H, 0.6 + Math.random() * 1.2, 0, Math.PI * 2); ctx.fill();
+
+  // Darker veins — more visible flowing lines
+  ctx.globalAlpha = 0.15;
+  ctx.strokeStyle = '#302c28';
+  ctx.lineWidth = 2.5;
+  for (let i = 0; i < 14; i++) {
+    const y = Math.random() * H;
+    ctx.beginPath(); ctx.moveTo(0, y);
+    for (let x = 0; x < W; x += 30) {
+      ctx.lineTo(x, y + (Math.random() - 0.5) * 40);
+    }
+    ctx.stroke();
   }
+  // Lighter veins
+  ctx.globalAlpha = 0.12;
+  ctx.strokeStyle = '#6a6560';
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 10; i++) {
+    const y = Math.random() * H;
+    ctx.beginPath(); ctx.moveTo(0, y);
+    for (let x = 0; x < W; x += 30) {
+      ctx.lineTo(x, y + (Math.random() - 0.5) * 35);
+    }
+    ctx.stroke();
+  }
+
+  // Terrazzo chips — much more visible, varied sizes
+  ctx.globalAlpha = 0.45;
+  for (let i = 0; i < 900; i++) {
+    const r = Math.random();
+    if (r < 0.3) ctx.fillStyle = '#d4cec4';      // light cream chip
+    else if (r < 0.55) ctx.fillStyle = '#6b6660'; // medium grey chip
+    else if (r < 0.75) ctx.fillStyle = '#2a2724'; // dark chip
+    else ctx.fillStyle = '#8a8070';               // warm brown chip
+    ctx.beginPath();
+    const sz = 0.5 + Math.random() * 2.5;
+    ctx.arc(Math.random() * W, Math.random() * H, sz, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   ctx.globalAlpha = 1;
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
@@ -638,8 +676,40 @@ function _floorTex() {
 }
 
 function _ceilingTex() {
-  // Matte dark ceiling with very subtle variation.
-  const c = _noiseCanvas(256, 256, '#101014', 8);
+  // Dark ceiling with scattered stars — small bright dots at random positions.
+  const c = document.createElement('canvas'); c.width = 512; c.height = 512;
+  const ctx = c.getContext('2d');
+  // Deep space blue-black base
+  ctx.fillStyle = '#080a14';
+  ctx.fillRect(0, 0, 512, 512);
+  // Faint noise grain
+  for (let i = 0; i < 2000; i++) {
+    const x = Math.random() * 512, y = Math.random() * 512;
+    const b = 6 + Math.random() * 8;
+    ctx.fillStyle = `rgba(16,16,24,${0.3 + Math.random() * 0.4})`;
+    ctx.fillRect(x, y, 1, 1);
+  }
+  // Stars — bright dots at random positions
+  for (let i = 0; i < 300; i++) {
+    const x = Math.random() * 512, y = Math.random() * 512;
+    const r = Math.random() * 1.2;
+    const alpha = 0.25 + Math.random() * 0.75;
+    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Few accent-colored stars (subtle purple/blue)
+  for (let i = 0; i < 40; i++) {
+    const x = Math.random() * 512, y = Math.random() * 512;
+    const r = Math.random() * 1.5;
+    const a = 0.3 + Math.random() * 0.5;
+    const colors = ['rgba(167,139,250,', 'rgba(96,165,250,', 'rgba(244,114,182,'];
+    ctx.fillStyle = colors[Math.floor(Math.random() * 3)] + a + ')';
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -657,12 +727,13 @@ function _getCeilingTex() { _tex.ceiling ??= _ceilingTex();  return _tex.ceiling
 const MAT_FLOOR = () => {
   const tex = _getFloorTex();
   tex.repeat.set(8, 8);
-  return new THREE.MeshStandardMaterial({ map: tex, roughness: 0.78, metalness: 0.05 });
+  return new THREE.MeshStandardMaterial({ map: tex, roughness: 0.35, metalness: 0.02 });
 };
 const MAT_CEIL  = () => {
   const tex = _getCeilingTex();
   tex.repeat.set(6, 6);
-  return new THREE.MeshStandardMaterial({ map: tex, roughness: 1.0, metalness: 0.0 });
+  // MeshBasicMaterial so stars glow regardless of room lighting
+  return new THREE.MeshBasicMaterial({ map: tex });
 };
 // DoubleSide so walls remain visible from both rooms — the hub-side wall has
 // to read both from inside the hub (player walking up to a door) and from
@@ -1079,9 +1150,9 @@ const placeholderTex = (() => {
 function buildPainting(panel, mem) {
   const nx = Math.sin(mem.rotation_y), nz = Math.cos(mem.rotation_y);
 
-  // Simple flat frame: slightly larger plane behind painting, cluster-colored.
+  // Subtle dark frame — blends with any wall color, avoids ghost-panel look.
   const frameMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(panel.color), roughness: 0.4, metalness: 0.5,
+    color: 0x1a1a20, roughness: 0.7, metalness: 0.1,
   });
   const frame = new THREE.Mesh(
     new THREE.PlaneGeometry(mem.width + 0.06, mem.height + 0.06),
@@ -1905,7 +1976,23 @@ function setupHubSearch() {
             foot.textContent = `teleported · ${via} · ${relPct}% match`;
             controls.lock();
           } else {
-            foot.textContent = 'matched but offstage — try another phrase';
+            // Memory not in paintingsById — find its room from the layout
+            const sides = state.layout?.hub?.sides || [];
+            let found = null;
+            for (const s of sides) {
+              if ((s.memories || []).some(m => m.id === hit.id)) {
+                found = s; break;
+              }
+            }
+            if (found) {
+              teleportTo(found.cx ?? 0, found.cz ?? 0);
+              grid.innerHTML = '';
+              input.value = '';
+              foot.textContent = `teleported to room · ${via} · ${relPct}% match`;
+              controls.lock();
+            } else {
+              foot.textContent = 'hit refresh — layout needs rebuild';
+            }
           }
         });
         grid.appendChild(tile);

@@ -8,18 +8,18 @@ import ImageViewer from '@/components/ImageViewer';
 import UploadBar from '@/components/UploadBar';
 import PeopleGrid from '@/components/PeopleGrid';
 import PersonPanel from '@/components/PersonPanel';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Users } from 'lucide-react';
 
 type FilterType = 'all' | 'photo' | 'video' | 'voice_memo' | 'screenshot';
 type Mode = 'search' | 'library' | 'people';
 
-const PLACEHOLDERS = [
-  "dog at the beach",
-  "what Sarah said about the venue",
-  "that error from Tuesday",
-  "sunset photos",
-  "race condition bug",
-  "ceramic mug gift",
+const SUGGESTIONS = [
+  { q: 'sunset', icon: '🌅' },
+  { q: 'screenshot', icon: '🖼️' },
+  { q: 'birthday', icon: '🎂' },
+  { q: 'error', icon: '🐛' },
+  { q: 'voice memo', icon: '🎙️' },
+  { q: 'family', icon: '👨‍👩‍👧' },
 ];
 
 export default function SearchPage() {
@@ -32,7 +32,6 @@ export default function SearchPage() {
   const [libraryBefore, setLibraryBefore] = useState<number | null>(null);
   const [allLibraryItems, setAllLibraryItems] = useState<MemoryItem[]>([]);
 
-  // Debounce search input
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(query), 200);
     return () => clearTimeout(t);
@@ -43,21 +42,24 @@ export default function SearchPage() {
     setMode('search');
   }, [debouncedQuery]);
 
-  // Search query
   const { data: searchData, isFetching: searchLoading } = useQuery({
     queryKey: ['search', debouncedQuery],
     queryFn: () => api.search(debouncedQuery, 12),
     enabled: debouncedQuery.trim().length > 0,
   });
 
-  // Library query
+  const { data: stats } = useQuery({
+    queryKey: ['stats'],
+    queryFn: () => api.stats(),
+    staleTime: 15_000,
+  });
+
   const { data: libraryPage, isFetching: libraryLoading } = useQuery({
     queryKey: ['library', libraryBefore],
     queryFn: () => api.library(60, libraryBefore),
     enabled: mode === 'library',
   });
 
-  // Append library items
   useEffect(() => {
     if (libraryPage?.items) {
       setAllLibraryItems(prev => {
@@ -68,26 +70,17 @@ export default function SearchPage() {
     }
   }, [libraryPage, libraryBefore]);
 
-  // Reset library when entering
   const enterLibrary = useCallback(() => {
-    setMode('library');
-    setAllLibraryItems([]);
-    setLibraryBefore(null);
-    setQuery('');
+    setMode('library'); setAllLibraryItems([]); setLibraryBefore(null); setQuery('');
   }, []);
+  const exitLibrary = useCallback(() => { setMode('search'); setAllLibraryItems([]); }, []);
 
-  const exitLibrary = useCallback(() => {
-    setMode('search');
-    setAllLibraryItems([]);
-  }, []);
+  const results = searchData?.results || [];
+  const filtered = filter === 'all' ? results : results.filter(r => r.type === filter);
+  const matchedLabels = searchData?.matched_labels || [];
+  const showHero = !debouncedQuery.trim() && mode === 'search';
+  const isEmpty = debouncedQuery.trim() && !searchLoading && filtered.length === 0;
 
-  const loadMore = useCallback(() => {
-    if (libraryPage?.next_before) {
-      setLibraryBefore(libraryPage.next_before);
-    }
-  }, [libraryPage]);
-
-  // Forget mutation
   const forgetMut = useMutation({
     mutationFn: (id: string) => api.forget(id, true),
     onSuccess: () => {
@@ -104,80 +97,75 @@ export default function SearchPage() {
     setAllLibraryItems(prev => prev.filter(x => x.id !== id));
   };
 
-  // Results
-  const results = searchData?.results || [];
-  const filtered = filter === 'all' ? results : results.filter(r => r.type === filter);
-  const matchedLabels = searchData?.matched_labels || [];
-
-  const showHero = !debouncedQuery.trim() && mode === 'search';
-  const isEmpty = debouncedQuery.trim() && !searchLoading && filtered.length === 0;
-
-  // Placeholder rotation for hero
-  const [phIdx, setPhIdx] = useState(0);
-  useEffect(() => {
-    const iv = setInterval(() => setPhIdx(i => (i + 1) % PLACEHOLDERS.length), 3000);
-    return () => clearInterval(iv);
-  }, []);
-
   return (
     <div>
-      {/* Upload bar */}
       <UploadBar onComplete={() => {
-        if (debouncedQuery.trim()) {
-          queryClient.invalidateQueries({ queryKey: ['search', debouncedQuery] });
-        }
-        if (mode === 'library') {
-          setAllLibraryItems([]);
-          setLibraryBefore(null);
-        }
+        if (debouncedQuery.trim()) queryClient.invalidateQueries({ queryKey: ['search', debouncedQuery] });
+        if (mode === 'library') { setAllLibraryItems([]); setLibraryBefore(null); }
       }} />
 
-      {/* Search bar */}
-      <SearchBar value={query} onChange={(v) => {
-        setQuery(v);
-        if (mode === 'library') exitLibrary();
-      }} />
+      <SearchBar value={query} onChange={(v) => { setQuery(v); if (mode === 'library') exitLibrary(); }} />
 
-      {/* Filter chips */}
       <FilterChips
-        active={filter}
-        onChange={setFilter}
-        mode={mode}
-        onPeopleToggle={() => {
-          if (mode === 'people') { setMode('search'); return; }
-          setMode('people');
-          setQuery('');
-        }}
-        onLibraryToggle={() => {
-          if (mode === 'library') { exitLibrary(); return; }
-          enterLibrary();
-        }}
+        active={filter} onChange={setFilter} mode={mode}
+        onPeopleToggle={() => { if (mode === 'people') { setMode('search'); return; } setMode('people'); setQuery(''); }}
+        onLibraryToggle={() => { if (mode === 'library') { exitLibrary(); return; } enterLibrary(); }}
       />
 
-      {/* Face filter indicator */}
-      {matchedLabels.length > 0 && (
-        <div className="mb-4 text-xs text-accent flex items-center gap-2">
-          <span>👤</span>
-          <span>filtering by {matchedLabels.join(' + ')} · {results.length} hits within their memories</span>
+      {/* Stats bar — compact inline */}
+      {showHero && stats && (
+        <div className="flex items-center justify-center gap-4 mb-4 text-xs text-text-muted">
+          <span className="text-text">{stats.total} <span className="text-text-muted">memories</span></span>
+          <span className="text-text-dim">·</span>
+          <span>{stats.by_type?.photo ?? 0} photos</span>
+          <span className="text-text-dim">·</span>
+          <span>{stats.by_type?.video ?? 0} videos</span>
+          <span className="text-text-dim">·</span>
+          <span>{stats.by_type?.voice_memo ?? 0} voice</span>
+          <span className="text-text-dim">·</span>
+          <span>{stats.by_type?.screenshot ?? 0} screenshots</span>
         </div>
       )}
 
-      {/* Hero / empty query state */}
+      {/* Suggested search chips */}
       {showHero && (
-        <div className="relative mb-6 rounded-2xl overflow-hidden border border-[#1e1e28] bg-gradient-to-b from-[#0d0d18] to-[#06060a] h-80 flex items-center justify-center">
+        <div className="flex flex-wrap justify-center gap-2 mb-6">
+          {SUGGESTIONS.map(s => (
+            <button
+              key={s.q}
+              onClick={() => setQuery(s.q)}
+              className="glass px-4 py-2 rounded-full text-xs text-text-dim hover:text-text hover:border-accent transition-all cursor-pointer"
+            >
+              {s.icon} {s.q}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Face filter indicator */}
+      {matchedLabels.length > 0 && (
+        <div className="glass mb-4 px-4 py-2 rounded-full text-xs text-accent flex items-center gap-2">
+          <Users className="w-3 h-3" />
+          <span>filtered by {matchedLabels.join(' + ')} · {results.length} hits</span>
+        </div>
+      )}
+
+      {/* Hero — simple gradient */}
+      {showHero && (
+        <div className="relative mb-6 rounded-2xl overflow-hidden border border-[#1e1e28] bg-gradient-to-b from-[#0d0d18] to-[#06060a] h-72 flex items-center justify-center">
           <div className="text-center">
-            <div className="text-5xl mb-4 text-text-muted">Échos</div>
+            <div className="text-4xl font-semibold text-text mb-2">Échos</div>
             <p className="text-text-muted text-sm px-4">
-              {PLACEHOLDERS[phIdx]}
+              search every memory on your phone, in one place
             </p>
-            <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted mt-6">
-              search every memory · vector galaxy
+            <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted mt-4">
+              nothing leaves your device
             </p>
           </div>
         </div>
       )}
 
-      {/* Search results grid */}
+      {/* Search results */}
       {mode === 'search' && debouncedQuery.trim() && (
         <>
           {searchLoading ? (
@@ -193,51 +181,42 @@ export default function SearchPage() {
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-5">
-              {filtered.map(r => (
-                <MemoryTile
-                  key={r.id}
-                  item={r}
-                  onClick={() => setViewerItem(r)}
-                  onDelete={() => handleForget(r.id, r.type)}
-                />
+              {filtered.map((r, i) => (
+                <div key={r.id} className="animate-tile-in" style={{ animationDelay: `${i * 60}ms` }}>
+                  <MemoryTile
+                    item={r}
+                    onClick={() => setViewerItem(r)}
+                    onDelete={() => handleForget(r.id, r.type)}
+                  />
+                </div>
               ))}
             </div>
           )}
         </>
       )}
 
-      {/* Library grid */}
+      {/* Library */}
       {mode === 'library' && (
         <div>
           {libraryLoading && allLibraryItems.length === 0 ? (
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-1.5">
-              {Array.from({ length: 12 }).map((_, i) => (
-                <div key={i} className="aspect-square rounded-lg shimmer" />
-              ))}
+              {Array.from({ length: 12 }).map((_, i) => <div key={i} className="aspect-square rounded-lg shimmer" />)}
             </div>
           ) : allLibraryItems.length === 0 ? (
-            <div className="py-24 text-center text-text-muted text-sm">
-              no memories yet — drop files via "+ add memory".
-            </div>
+            <div className="py-24 text-center text-text-muted text-sm">no memories yet. drop files via "+ add memory".</div>
           ) : (
             <>
               <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-1.5">
-                {allLibraryItems.map(it => (
-                  <MemoryTile
-                    key={it.id}
-                    item={it}
-                    onClick={() => setViewerItem(it)}
-                    onDelete={() => handleForget(it.id, it.type)}
-                  />
+                {allLibraryItems.map((it, i) => (
+                  <div key={it.id} className="animate-tile-in" style={{ animationDelay: `${i * 40}ms` }}>
+                    <MemoryTile item={it} onClick={() => setViewerItem(it)} onDelete={() => handleForget(it.id, it.type)} />
+                  </div>
                 ))}
               </div>
               {libraryPage?.next_before && (
                 <div className="text-center mt-6">
-                  <button
-                    onClick={loadMore}
-                    disabled={libraryLoading}
-                    className="px-4 py-2 rounded-full text-xs border border-[#1e1e28] hover:border-accent transition-colors disabled:opacity-50"
-                  >
+                  <button onClick={() => libraryPage.next_before && setLibraryBefore(libraryPage.next_before)} disabled={libraryLoading}
+                    className="glass px-4 py-2 rounded-full text-xs hover:border-accent transition-colors disabled:opacity-50">
                     {libraryLoading ? 'loading…' : 'load older'}
                   </button>
                 </div>
@@ -247,19 +226,9 @@ export default function SearchPage() {
         </div>
       )}
 
-      {/* People mode — inline people view */}
-      {mode === 'people' && (
-        <InlinePeople />
-      )}
+      {mode === 'people' && <InlinePeople />}
 
-      {/* Image viewer modal */}
-      {viewerItem && (
-        <ImageViewer
-          item={viewerItem}
-          query={debouncedQuery}
-          onClose={() => setViewerItem(null)}
-        />
-      )}
+      {viewerItem && <ImageViewer item={viewerItem} query={debouncedQuery} onClose={() => setViewerItem(null)} />}
     </div>
   );
 }

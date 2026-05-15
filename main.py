@@ -669,46 +669,39 @@ def ask_endpoint(body: AskBody):
 
     # 3) Synthesize answer with local LLM
     answer: str | None = None
-    # Build a compact summary of search results for the LLM prompt
+    # Build a compact summary of search results — keep lines short to save tokens
     result_lines: list[str] = []
-    for r in results[:5]:
+    for r in results[:4]:
         parts: list[str] = [f"[{r.get('type', 'unknown')}]"]
         ts = r.get("timestamp")
         if ts:
             import datetime as _dt
-            parts.append(_dt.datetime.fromtimestamp(ts).strftime("%B %d"))
+            parts.append(_dt.datetime.fromtimestamp(ts).strftime("%b %d"))
         t = (r.get("transcript") or "").strip()
         if t:
-            parts.append(f'transcript: "{t[:150]}"')
+            parts.append(f'"{t[:80]}"')
         o = (r.get("ocr_text") or "").strip()
         if o:
-            parts.append(f'ocr: "{o[:150]}"')
-        parts.append(f'score: {r.get("score", 0):.2f}')
+            parts.append(f'ocr:"{o[:80]}"')
         result_lines.append(" · ".join(parts))
 
-    context_block = ""
-    if past_context:
-        context_block = "Past conversation:\n" + "\n".join(
-            f'Q: "{c["question"]}" → A: {c["answer"] or "(no answer yet)"}'
-            for c in past_context
-        ) + "\n\n"
-
+    # Don't include past context in the LLM prompt — it confuses the model.
+    # Past context is still returned in the API response for the frontend.
     prompt = (
-        f'{context_block}'
         f'User asked: "{q}"\n\n'
-        f'Search results (top {len(result_lines)}):\n'
+        f'Search results:\n'
         + "\n".join(f"  {i + 1}. {line}" for i, line in enumerate(result_lines))
     )
 
     llm_used = False
     try:
         raw = ask_llm(
-            "You are Échos, a memory assistant. Answer in 1-3 natural English sentences. "
-            "Mention dates, people, places from the results. If results are empty, say so "
-            "kindly. Never mention scores or technical details. Never use emojis. "
-            "Sound like a friend helping recall moments.",
+            "You are Échos, a memory search assistant. Describe what the user's "
+            "memories contain in 1-2 short sentences. Mention dates and content "
+            "from the results. If nothing matches, say so directly. Never mention "
+            "scores, technical details, or emojis. Be brief.",
             prompt,
-            max_tokens=50,
+            max_tokens=40,
             temperature=0.1,
         )
         if raw and raw.strip():

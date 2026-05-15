@@ -40,6 +40,15 @@
   100% { background-position: -200% 0; }
 }
 
+@keyframes tileIn {
+  0%   { opacity: 0; transform: translateY(12px) scale(0.96); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@utility animate-tile-in {
+  animation: tileIn 0.4s ease-out both;
+}
+
 @utility glass {
   background: rgba(8, 8, 14, 0.78);
   backdrop-filter: blur(10px);
