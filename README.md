@@ -43,6 +43,12 @@ flowchart TB
     N[Qwen 2.5 3B · LM Studio] --> L
 ```
 
+## Demo Video
+
+[Watch the 3-minute demo on YouTube](https://www.youtube.com/watch?v=05BE_IZWjEk)
+
+<video src="static/echos-qdrant-hackathon-video.mp4" width="100%" controls></video>
+
 ---
 
 ## Features
@@ -170,12 +176,6 @@ Stack: Vite &middot; React 19 &middot; TypeScript &middot; TailwindCSS &middot; 
 - **Sentence-transformers** pinned to 3.3.1 (5.x has broken pooling for `all-MiniLM-L6-v2`).
 - **Cold start** downloads ~1.5 GB of model weights. Run once with internet, then `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1` to go fully offline.
 - **EXIF dates** extracted where available; filename dates used as fallback. Files without either use file mtime.
-
----
-
-## Demo Video
-
-[Watch the 3-minute demo](https://www.youtube.com/watch?v=05BE_IZWjEk)
 
 ---
 
