@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: echoes-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist Qdrant data
+      - qdrant_data:/app/qdrant_storage
+      # Shared memories folder
+      - memories_data:/app/memories
+    environment:
+      - ECHOS_DATA=/app/qdrant_storage
+      - ECHOS_MEMORIES=/app/memories
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/stats')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ./echoes-front
+      dockerfile: Dockerfile
+    container_name: echoes-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  qdrant_data:
+    driver: local
+  memories_data:
+    driver: local
