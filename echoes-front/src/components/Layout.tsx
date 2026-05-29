@@ -15,7 +15,8 @@ export default function Layout({ children }: { children: ReactNode }) {
     <div className="min-h-screen">
       <header className="flex items-center justify-between px-6 py-4 border-b border-[#1e1e28]">
         <div>
-          <Link href="/search">
+          <Link href="/search" className="flex items-center gap-3">
+            <img src="/favicon.ico" alt="Échos" className="w-8 h-8 rounded" />
             <h1 className="text-xl font-semibold tracking-tight cursor-pointer hover:text-accent transition-colors">
               Échos
             </h1>

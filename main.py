@@ -127,6 +127,14 @@ if REACT_DIST.exists():
     app.mount("/assets", StaticFiles(directory=REACT_DIST / "assets"), name="react-assets")
 
 
+@app.get("/favicon.ico")
+def favicon():
+    logo = BASE_DIR / "static" / "echos-logo1.png"
+    if logo.exists():
+        return FileResponse(logo, media_type="image/png")
+    raise HTTPException(404)
+
+
 @app.get("/")
 def root():
     idx = REACT_DIST / "index.html"
