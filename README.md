@@ -1,8 +1,7 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/qdrant/qdrant/master/docs/logo.svg" alt="Qdrant" width="120px">
-
 <h1>Échos</h1>
+<h3>powered by <img src="https://raw.githubusercontent.com/qdrant/qdrant/master/docs/logo.svg" alt="Qdrant" width="140px" style="vertical-align: middle"></h3>
 <img src="static/echos-logo.png" alt="Échos" width="350px">
 
 <p>
