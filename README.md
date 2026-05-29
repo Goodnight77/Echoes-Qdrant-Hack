@@ -44,9 +44,10 @@ flowchart TB
 ```
 
 ## Demo Video
-[Watch on YouTube](https://www.youtube.com/watch?v=05BE_IZWjEk)
 
-![Demo](https://github.com/Goodnight77/Echoes-Qdrant-Hack/releases/download/v1.0.0/echos-qdrant-hackathon-video.mp4)
+<video src="https://github.com/Goodnight77/Echoes-Qdrant-Hack/releases/download/v1.0.0/echos-qdrant-hackathon-video.mp4" width="100%" controls></video>
+
+[Watch on YouTube](https://www.youtube.com/watch?v=05BE_IZWjEk)
 
 
 ---
