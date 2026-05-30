@@ -174,4 +174,10 @@ Stack: Vite &middot; React 19 &middot; TypeScript &middot; TailwindCSS &middot; 
 
 ---
 
+## Demo Video
+
+[Watch the 3-minute demo](https://www.youtube.com/watch?v=05BE_IZWjEk)
+
+---
+
 **Échos** (French: "echoes") - memories that come back to you.
